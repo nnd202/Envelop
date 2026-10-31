@@ -96,7 +96,7 @@ function vueAccueil() {
       <button class="ajouter" data-action="nouvelle-base">${ICONES.plus} Nouvelle base</button></div>
     </section>
     ${aDemo ? '' : '<button class="btn btn-second btn-large" data-action="demo">Essayer avec une base de démo</button>'}
-    <p class="aide" style="margin-top:16px;text-align:center">Tes données restent dans ce navigateur, sur cet appareil.</p>`;
+    <p class="aide sur-fond" style="margin-top:16px;text-align:center">Tes données restent dans ce navigateur, sur cet appareil.</p>`;
 }
 
 // --- Vue : mois en cours --------------------------------------------------------
@@ -234,7 +234,7 @@ function vueFixes(b) {
       <div class="liste">${r.revenusOps.map(ligne).join('') || '<div class="vide">Aucun revenu.</div>'}
       <button class="ajouter" data-action="nouvelle-op" data-cible="revenu">${ICONES.plus} Ajouter un revenu</button></div>
     </section>
-    <p class="aide" style="text-align:center">Les opérations récurrentes seront reportées automatiquement au mois suivant. Une opération en pause reste visible mais ne compte pas.</p>
+    <p class="aide sur-fond" style="text-align:center">Les opérations récurrentes seront reportées automatiquement au mois suivant. Une opération en pause reste visible mais ne compte pas.</p>
     ${barre(b, 'fixes')}`;
 }
 
@@ -260,7 +260,7 @@ function vuePlafonds(b) {
       ${lignes || '<div class="vide">Aucune enveloppe.</div>'}
       <div class="synthese"><div class="synthese-ligne forte"><span>Total des plafonds</span><span id="total-plafonds">${euros(total)}</span></div></div>
     </section>
-    <p class="aide" style="text-align:center">Un plafond modifié vaut pour ${nomMois(m)} et les mois suivants, jamais pour les mois passés.</p>
+    <p class="aide sur-fond" style="text-align:center">Un plafond modifié vaut pour ${nomMois(m)} et les mois suivants, jamais pour les mois passés.</p>
     ${envs.length ? '<button class="btn btn-principal btn-large" data-action="enregistrer-plafonds">Enregistrer les plafonds</button>' : ''}
     ${barre(b, 'plafonds')}`;
 }

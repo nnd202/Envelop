@@ -22,14 +22,26 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+/* Fond : calque fixe, plus haut que l'écran, pour que le dégradé reste en place
+   quand les barres du navigateur se replient (pas de bande blanche en bas). */
+html { -webkit-text-size-adjust: 100%; background: #0b5f70; }
 body {
   margin: 0;
   min-height: 100vh;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--texte);
-  background: linear-gradient(170deg, #f2fdfb 0%, #d8f7f0 38%, #a9ecdf 72%, #7fe0d3 100%) fixed;
+  background: transparent;
   -webkit-tap-highlight-color: transparent;
+}
+body::before {
+  content: '';
+  position: fixed;
+  left: 0; right: 0; top: 0;
+  height: calc(100vh + 160px);
+  height: calc(100lvh + 40px);
+  background: linear-gradient(175deg, #1aa7a8 0%, #14919b 35%, #0e7b88 70%, #0b5f70 100%);
+  z-index: -1;
+  pointer-events: none;
 }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -39,9 +51,9 @@ button { cursor: pointer; }
 
 /* --- En-tête ---------------------------------------------------------------- */
 .entete { display: flex; align-items: center; gap: 8px; padding: 18px 4px 12px; }
-.entete h1 { margin: 0; font-size: 1.55rem; font-weight: 650; letter-spacing: -0.01em; flex: 1; }
-.entete .sur-titre { display: block; font-size: 0.8rem; font-weight: 500; color: var(--petrole); letter-spacing: 0.02em; }
-.btn-icone { width: 40px; height: 40px; border: none; border-radius: 14px; background: rgba(255,255,255,0.7); display: grid; place-items: center; color: var(--petrole); flex: none; }
+.entete h1 { margin: 0; font-size: 1.55rem; font-weight: 650; letter-spacing: -0.01em; flex: 1; color: #fff; }
+.entete .sur-titre { display: block; font-size: 0.8rem; font-weight: 500; color: #c9f7e4; letter-spacing: 0.02em; }
+.btn-icone { width: 40px; height: 40px; border: none; border-radius: 14px; background: rgba(255,255,255,0.18); display: grid; place-items: center; color: #fff; flex: none; }
 .btn-icone svg { width: 20px; height: 20px; }
 
 /* --- Cartes ------------------------------------------------------------------- */
@@ -101,7 +113,8 @@ button { cursor: pointer; }
 .heros-chiffres b { display: block; color: var(--texte); font-size: 1rem; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
 /* --- Bandeau d'info ---------------------------------------------------------- */
-.bandeau { background: rgba(255,255,255,0.75); border-radius: 16px; padding: 11px 14px; font-size: 0.86rem; color: var(--petrole); margin-bottom: 14px; }
+.bandeau { background: rgba(255,255,255,0.92); border-radius: 16px; padding: 11px 14px; font-size: 0.86rem; color: var(--petrole); margin-bottom: 14px; }
+.sur-fond { color: rgba(255,255,255,0.82) !important; }
 .vide { padding: 22px 18px; color: var(--texte-doux); text-align: center; font-size: 0.92rem; }
 
 /* --- Barre du bas -------------------------------------------------------------- */
