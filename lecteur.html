@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Envelop — lecteur de sauvegarde</title>
+<style>
+body{margin:0;font-family:system-ui,sans-serif;background:linear-gradient(175deg,#1aa7a8,#0b5f70) fixed;color:#213A57;min-height:100vh}
+main{max-width:760px;margin:0 auto;padding:20px 14px}
+h1{color:#fff;margin:6px 0 4px}.intro{color:#d8f7f0;margin:0 0 16px;line-height:1.45}
+form,section,#resultat>p,.boutons{background:#fff;border-radius:20px;padding:16px 18px;margin-bottom:14px}
+label{display:block;font-size:.85rem;color:#5f7487;margin:0 0 12px}input{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px;border:1.5px solid #dbe6ec;border-radius:12px;font-size:1rem}
+button{border:0;border-radius:14px;padding:12px 16px;font-weight:600;font-size:.95rem;background:#14919B;color:#fff;margin:4px 6px 4px 0;cursor:pointer}
+#message{color:#d14b4b;margin:10px 0 0;min-height:1em}table{width:100%;border-collapse:collapse;font-size:.9rem}td,th{padding:6px 4px;border-top:1px solid #e6eef2;text-align:right}td:first-child,th:first-child{text-align:left}.ok{color:#137a57;font-weight:600}
+</style></head><body><main>
+<h1>Lecteur de sauvegarde Envelop</h1>
+<p class="intro">Ouvre un fichier de sauvegarde avec son mot de passe, sans l'appli et sans connexion. Rien n'est envoyé nulle part : tout se passe dans ce navigateur. Les fichiers obtenus ne sont pas chiffrés.</p>
+<form id="ouvrir"><label>Fichier de sauvegarde (.txt ou .json)<input id="fichier" type="file" accept=".txt,.json"></label>
+<label>Mot de passe de la sauvegarde<input id="mdp" type="password" autocomplete="off"></label>
+<button>Ouvrir</button><p id="message"></p></form>
+<div id="resultat"></div>
+</main><script>
+// Chiffrement des données d'Envelop (WebCrypto, aucun envoi réseau).
+// Clé dérivée du mot de passe par PBKDF2-SHA-256, données chiffrées en AES-GCM 256 bits.
+// Sans le mot de passe, les données et les sauvegardes sont illisibles : il n'existe aucune porte dérobée.
+
+const ITERATIONS = 310000;
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+function versBase64(octets) {
+  let s = '';
+  const u = new Uint8Array(octets);
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+function depuisBase64(texte) {
+  return Uint8Array.from(atob(texte), (c) => c.charCodeAt(0));
+}
+
+function nouveauSel() {
+  return versBase64(crypto.getRandomValues(new Uint8Array(16)));
+}
+
+async function deriverCle(motDePasse, sel, iterations = ITERATIONS) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(motDePasse), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: depuisBase64(sel), iterations, hash: 'SHA-256' },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+async function chiffrer(cle, objet) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const donnees = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cle, enc.encode(JSON.stringify(objet)));
+  return { iv: versBase64(iv), donnees: versBase64(donnees) };
+}
+
+// Lève une erreur si la clé est mauvaise (mot de passe incorrect) ou les données altérées.
+async function dechiffrer(cle, { iv, donnees }) {
+  const clair = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: depuisBase64(iv) }, cle, depuisBase64(donnees));
+  return JSON.parse(dec.decode(clair));
+}
+
+// Moteur de calcul d'Envelop.
+// Règle d'or : seules les saisies sont stockées ; tout chiffre affiché est recalculé ici.
+// Tous les montants sont en centimes (entiers) pour éviter les erreurs d'arrondi.
+
+// --- Mois au format "AAAA-MM" -------------------------------------------------
+
+function moisDe(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function moisSuivant(m) {
+  let [a, n] = m.split('-').map(Number);
+  n += 1;
+  if (n > 12) { n = 1; a += 1; }
+  return `${a}-${String(n).padStart(2, '0')}`;
+}
+
+function moisPrecedent(m) {
+  let [a, n] = m.split('-').map(Number);
+  n -= 1;
+  if (n < 1) { n = 12; a -= 1; }
+  return `${a}-${String(n).padStart(2, '0')}`;
+}
+
+// --- Lecture des saisies ------------------------------------------------------
+
+// Plafond en vigueur pour une enveloppe et un mois : la dernière valeur définie
+// à partir d'un mois antérieur ou égal. Jamais rétroactif.
+function plafond(base, envId, m) {
+  let val = 0;
+  let depuis = '';
+  for (const p of base.plafonds) {
+    if (p.enveloppeId === envId && p.depuis <= m && p.depuis >= depuis) {
+      val = p.montant;
+      depuis = p.depuis;
+    }
+  }
+  return val;
+}
+
+// Une enveloppe existe dans un mois si elle a été créée avant (ou ce mois-là)
+// et n'a pas été supprimée avant (supprimeeDepuis = premier mois où elle disparaît).
+function enveloppeActive(env, m) {
+  return env.creeeLe <= m && (!env.supprimeeDepuis || m < env.supprimeeDepuis);
+}
+
+function enveloppesDuMois(base, m) {
+  return base.enveloppes
+    .filter((e) => enveloppeActive(e, m))
+    .sort((a, b) => a.ordre - b.ordre);
+}
+
+function operationsDe(base, m, cible) {
+  return base.operations.filter((o) => o.mois === m && o.cible === cible);
+}
+
+const somme = (liste, f = (x) => x) => liste.reduce((t, x) => t + f(x), 0);
+
+// --- Calculs ------------------------------------------------------------------
+
+// Chiffres d'une enveloppe pour un mois donné, sans la noisette acquise.
+function chiffresEnveloppe(base, env, m) {
+  const ops = operationsDe(base, m, env.id);
+  const comptees = ops.filter((o) => !o.pause);
+  const courantes = comptees.filter((o) => !o.epargne);
+  const epargne = comptees.filter((o) => o.epargne);
+  const pl = plafond(base, env.id, m);
+  const mouvements = somme(courantes, (o) => o.montant); // négatif = dépense
+  return {
+    plafond: pl,
+    consomme: -mouvements,
+    reste: pl + mouvements,
+    epargne: somme(epargne, (o) => o.montant),
+    ops,
+  };
+}
+
+// Noisette en fin de mois m (en direct si m est le mois en cours).
+// Récurrence sur les mois précédents de la base ; mise en cache par appel.
+function noisette(base, env, m, cache = new Map()) {
+  const cle = `${env.id}|${m}`;
+  if (cache.has(cle)) return cache.get(cle);
+  const acquise = noisetteAcquise(base, env, m, cache);
+  const c = chiffresEnveloppe(base, env, m);
+  const val = acquise + c.reste + c.epargne;
+  cache.set(cle, val);
+  return val;
+}
+
+// Noisette à la fin du mois précédent ; au premier mois de l'enveloppe, sa noisette de départ.
+// Une ancre (mois importé) impose la valeur lue dans l'ancien outil : les mois plus anciens
+// ajoutés ensuite servent à l'historique et ne modifient jamais les mois ancrés et suivants.
+function noisetteAcquise(base, env, m, cache = new Map()) {
+  const ancre = base.ancres?.[m]?.[env.id];
+  if (ancre !== undefined) return ancre;
+  const prec = moisPrecedent(m);
+  if (env.creeeLe > prec || !base.mois.includes(prec)) return env.noisetteDepart || 0;
+  return noisette(base, env, prec, cache);
+}
+
+// Nombre de mois consécutifs, jusqu'au mois m inclus, où la noisette est négative.
+function moisNegatifs(base, env, m, cache = new Map()) {
+  let n = 0;
+  let cur = m;
+  while (base.mois.includes(cur) && env.creeeLe <= cur && noisette(base, env, cur, cache) < 0) {
+    n += 1;
+    cur = moisPrecedent(cur);
+  }
+  return n;
+}
+
+function tendance(direct, acquise) {
+  if (direct > acquise) return 'hausse';
+  if (direct < acquise) return 'baisse';
+  return 'stable';
+}
+
+// Réserve cumulée jusqu'au mois m inclus (versements de marge non affectés, étape 2).
+function reserve(base, m) {
+  return somme((base.reserve || []).filter((r) => r.mois <= m), (r) => r.montant);
+}
+
+// Tout ce qu'affiche la vue d'un mois.
+function calculMois(base, m) {
+  const cache = new Map();
+  const enveloppes = enveloppesDuMois(base, m).map((env) => {
+    const c = chiffresEnveloppe(base, env, m);
+    const acquise = noisetteAcquise(base, env, m, cache);
+    const direct = noisette(base, env, m, cache);
+    return {
+      env,
+      ...c,
+      acquise,
+      direct,
+      tendance: tendance(direct, acquise),
+      moisNegatifs: moisNegatifs(base, env, m, cache),
+    };
+  });
+
+  const revenusOps = operationsDe(base, m, 'revenu');
+  const chargesOps = operationsDe(base, m, 'charge');
+  const revenus = somme(revenusOps.filter((o) => !o.pause), (o) => o.montant);
+  const incompressible = somme(chargesOps.filter((o) => !o.pause), (o) => o.montant);
+  const plafonds = somme(enveloppes, (e) => e.plafond);
+  const consomme = somme(enveloppes, (e) => e.consomme);
+  const margePrevue = revenus - plafonds - incompressible;
+  const depassement = Math.max(0, consomme - plafonds);
+  const margeReelle = margePrevue - depassement;
+
+  const res = reserve(base, m);
+  const resAcquise = reserve(base, moisPrecedent(m));
+  const epargneGlobale = somme(enveloppes, (e) => e.direct) + res;
+  const epargneAcquise = somme(enveloppes, (e) => e.acquise) + resAcquise;
+
+  return {
+    mois: m,
+    enveloppes,
+    revenusOps,
+    chargesOps,
+    revenus,
+    incompressible,
+    plafonds,
+    consomme,
+    margePrevue,
+    depassement,
+    margeReelle,
+    reserve: res,
+    reserveTendance: tendance(res, resAcquise),
+    epargneGlobale,
+    epargneAcquise,
+    epargneTendance: tendance(epargneGlobale, epargneAcquise),
+  };
+}
+
+// --- Saisie des montants ------------------------------------------------------
+
+// "1 234,56", "139, 56€", "59,8", "-12.5" → centimes. null si illisible.
+function lireMontant(texte) {
+  if (texte == null) return null;
+  const t = String(texte).replace(/[\s  €]/g, '').replace(',', '.');
+  if (!/^-?\d+(\.\d{0,2})?$/.test(t)) return null;
+  return Math.round(parseFloat(t) * 100);
+}
+
+const fmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function formatMontant(centimes, { signe = false, euro = true } = {}) {
+  const s = fmt.format(centimes / 100);
+  const avecSigne = signe && centimes > 0 ? `+${s}` : s;
+  return euro ? `${avecSigne} €` : avecSigne;
+}
+
+const C = { calculMois, formatMontant };
+// Export lisible (non chiffré) : deux fichiers CSV pour tableur.
+// Point-virgule et virgule décimale (Excel en français), encodage UTF-8 avec BOM.
+
+
+const BOM = '﻿';
+
+function cellule(v) {
+  if (v == null) return '';
+  const t = String(v);
+  return /[;"\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
+const ligne = (vals) => vals.map(cellule).join(';');
+const montant = (c) => (c / 100).toFixed(2).replace('.', ',');
+const oui = (b) => (b ? 'oui' : '');
+
+function csvOperations(etat) {
+  const lignes = [ligne(['Base', 'Mois', 'Type', 'Enveloppe', 'Date', 'Libellé', 'Montant', 'En pause', 'Épargne', 'Récurrente'])];
+  for (const b of etat.bases) {
+    const noms = new Map(b.enveloppes.map((e) => [e.id, `${e.icone} ${e.nom}`]));
+    const ops = [...b.operations].sort((x, y) => (x.mois + (x.date || '')).localeCompare(y.mois + (y.date || '')));
+    for (const o of ops) {
+      const type = o.cible === 'charge' ? 'Charge fixe' : o.cible === 'revenu' ? 'Revenu' : 'Enveloppe';
+      lignes.push(ligne([b.nom, o.mois, type, noms.get(o.cible) || '', o.date || '', o.libelle || '', montant(o.montant), oui(o.pause), oui(o.epargne), oui(o.recurrente)]));
+    }
+    for (const r of b.reserve || []) {
+      lignes.push(ligne([b.nom, r.mois, 'Réserve', '', `${r.mois}-01`, `Marge ${r.origine || ''}`.trim(), montant(r.montant), '', 'oui', '']));
+    }
+  }
+  return BOM + lignes.join('\r\n');
+}
+
+function csvSynthese(etat) {
+  const lignes = [ligne(['Base', 'Mois', 'Enveloppe', 'Plafond', 'Dépensé', 'Reste', 'Noisette fin du mois précédent', 'Noisette fin du mois'])];
+  for (const b of etat.bases) {
+    for (const m of b.mois) {
+      const r = C.calculMois(b, m);
+      for (const e of r.enveloppes) {
+        lignes.push(ligne([b.nom, m, `${e.env.icone} ${e.env.nom}`, montant(e.plafond), montant(e.consomme), montant(e.reste), montant(e.acquise), montant(e.direct)]));
+      }
+      lignes.push(ligne([b.nom, m, 'Revenus', '', '', montant(r.revenus), '', '']));
+      lignes.push(ligne([b.nom, m, 'Incompressible', '', montant(r.incompressible), '', '', '']));
+      lignes.push(ligne([b.nom, m, 'Marge prévue', '', '', montant(r.margePrevue), '', '']));
+      lignes.push(ligne([b.nom, m, 'Marge réelle', '', '', montant(r.margeReelle), '', '']));
+      lignes.push(ligne([b.nom, m, 'Réserve', '', '', '', '', montant(r.reserve)]));
+      lignes.push(ligne([b.nom, m, 'Épargne globale', '', '', '', montant(r.epargneAcquise), montant(r.epargneGlobale)]));
+    }
+  }
+  return BOM + lignes.join('\r\n');
+}
+
+
+const $ = (s) => document.querySelector(s);
+const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let donnees = null;
+
+function telecharger(nom, texte, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([texte], { type }));
+  a.download = nom;
+  document.body.append(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+
+$('#ouvrir').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const msg = $('#message');
+  msg.textContent = 'Déchiffrement…';
+  try {
+    const f = $('#fichier').files[0];
+    if (!f) throw new Error('Choisis un fichier de sauvegarde.');
+    const obj = JSON.parse(await f.text());
+    if (!obj.kdf || !obj.donnees) throw new Error('Ce fichier n\'est pas une sauvegarde Envelop.');
+    const cle = await deriverCle($('#mdp').value, obj.kdf.sel, obj.kdf.iterations);
+    try { donnees = await dechiffrer(cle, obj); } catch { throw new Error('Mot de passe incorrect.'); }
+    msg.textContent = '';
+    afficher(obj.le);
+  } catch (e) { msg.textContent = e.message; }
+});
+
+function afficher(le) {
+  const bases = donnees.bases.map((b) => {
+    const m = b.mois[b.mois.length - 1];
+    const r = calculMois(b, m);
+    const lignes = r.enveloppes.map((e) => `<tr><td>${esc(e.env.icone)} ${esc(e.env.nom)}</td><td>${formatMontant(e.plafond)}</td><td>${formatMontant(e.reste)}</td><td>${formatMontant(e.direct)}</td></tr>`).join('');
+    return `<section><h2>${esc(b.icone)} ${esc(b.nom)}</h2><p>${b.mois.length} mois, de ${b.mois[0]} à ${m}. Dernier mois :</p>
+      <table><tr><th>Enveloppe</th><th>Plafond</th><th>Reste</th><th>Noisette</th></tr>${lignes}</table>
+      <p>Revenus ${formatMontant(r.revenus)} · Incompressible ${formatMontant(r.incompressible)} · Marge réelle ${formatMontant(r.margeReelle)} · Épargne globale ${formatMontant(r.epargneGlobale)}</p></section>`;
+  }).join('');
+  $('#resultat').innerHTML = `<p class="ok">Sauvegarde du ${le ? new Date(le).toLocaleString('fr-FR') : '?'} ouverte.</p>
+    <div class="boutons"><button data-x="ops">Opérations (CSV)</button><button data-x="syn">Synthèse mensuelle (CSV)</button><button data-x="json">Toutes les données (JSON)</button></div>${bases}`;
+}
+
+$('#resultat').addEventListener('click', (ev) => {
+  const x = ev.target.closest('[data-x]')?.dataset.x;
+  if (x === 'ops') telecharger('envelop-operations.csv', csvOperations(donnees), 'text/csv');
+  if (x === 'syn') telecharger('envelop-synthese.csv', csvSynthese(donnees), 'text/csv');
+  if (x === 'json') telecharger('envelop-donnees.json', JSON.stringify(donnees, null, 2), 'application/json');
+});
+</script></body></html>

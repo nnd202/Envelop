@@ -89,7 +89,11 @@ export function noisette(base, env, m, cache = new Map()) {
 }
 
 // Noisette à la fin du mois précédent ; au premier mois de l'enveloppe, sa noisette de départ.
+// Une ancre (mois importé) impose la valeur lue dans l'ancien outil : les mois plus anciens
+// ajoutés ensuite servent à l'historique et ne modifient jamais les mois ancrés et suivants.
 export function noisetteAcquise(base, env, m, cache = new Map()) {
+  const ancre = base.ancres?.[m]?.[env.id];
+  if (ancre !== undefined) return ancre;
   const prec = moisPrecedent(m);
   if (env.creeeLe > prec || !base.mois.includes(prec)) return env.noisetteDepart || 0;
   return noisette(base, env, prec, cache);

@@ -185,3 +185,38 @@ body.fige { overflow: hidden; }
 .bandeau-correction { background: #fff8e8; color: #7a5300; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--barre) + 22px + env(safe-area-inset-bottom)); width: calc(100% - 28px); max-width: 490px; background: var(--nuit); color: white; border-radius: 16px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; justify-content: space-between; font-size: 0.9rem; z-index: 30; box-shadow: 0 10px 26px rgba(0,0,0,0.25); }
 .toast button { background: none; border: 0; color: var(--menthe); font-weight: 700; padding: 4px 6px; }
+
+.sous-titre { font-size: 0.95rem; margin: 16px 0 4px; }
+.import-ligne { border: 1.5px solid var(--ligne); border-radius: 16px; padding: 10px 12px; margin-bottom: 8px; }
+.import-tete { display: flex; align-items: center; gap: 10px; }
+.import-tete .ligne-nom { flex: 1; font-size: 0.98rem; }
+.import-champs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.import-champs label { font-size: 0.76rem; color: var(--texte-doux); }
+.import-champs input { width: 100%; margin-top: 4px; border: 1.5px solid #dbe6ec; border-radius: 11px; padding: 8px 10px; font-size: 0.98rem; text-align: right; background: #fbfdfe; }
+
+/* --- Statistiques --------------------------------------------------------------- */
+.tuiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; }
+.tuile { border-radius: 16px; padding: 12px; background: linear-gradient(145deg, #effcf9, #dcf6ef); }
+.tuile small { display: block; color: var(--texte-doux); font-size: 0.78rem; }
+.tuile strong { display: block; font-size: 1.15rem; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.tuile em { display: block; font-style: normal; font-size: 0.76rem; color: var(--texte-doux); margin-top: 2px; }
+.graphes { padding: 6px 14px 10px; }
+.graphe { margin: 10px 0 14px; }
+.graphe figcaption { font-weight: 600; font-size: 0.92rem; margin-bottom: 6px; }
+.graphe svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.graphe .axe { font-size: 10px; fill: var(--texte-pale); }
+.graphe .zero { stroke: #c9d6de; stroke-width: 1; }
+.graphe .trait { fill: none; stroke: var(--teal); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.graphe .point { fill: var(--teal); stroke: white; stroke-width: 2; }
+.graphe .point.neg { fill: var(--baisse); }
+.graphe .baton { fill: var(--teal); }
+.graphe .baton.neg, .graphe .baton.depasse { fill: var(--baisse); }
+.graphe .plafond-trait { stroke: var(--nuit); stroke-width: 2; stroke-dasharray: 3 3; }
+.graphe .cible.active .point { r: 6; }
+.graphe .cible.active .baton { opacity: 0.8; }
+.graphe .lecture { font-size: 0.82rem; color: var(--texte-doux); min-height: 1.2em; margin-top: 4px; }
+.legende { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.78rem; color: var(--texte-doux); margin-bottom: 4px; }
+.legende .cle { display: inline-block; width: 12px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.baton-cle { background: var(--teal); }
+.depasse-cle { background: var(--baisse); }
+.plafond-cle { height: 0 !important; border-top: 2px dashed var(--nuit); border-radius: 0 !important; vertical-align: 3px !important; }

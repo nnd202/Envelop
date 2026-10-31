@@ -401,3 +401,18 @@ export function basculer(b, repartition) {
 export function annulerBascule(b) {
   modifier(() => BA.annuler(b));
 }
+
+// --- Import To Do ----------------------------------------------------------------
+
+import * as IT from './importtodo.js';
+
+export function ajouterBaseImportee(analyse, { nom, icone }) {
+  const b = IT.construireBase(analyse, { nom, icone });
+  modifier((e) => e.bases.push(b));
+  return b;
+}
+
+export async function ajouterMoisAncien(b, analyse, correspondances) {
+  await prendreCopie(`Avant ajout de ${analyse.mois} depuis To Do`);
+  modifier(() => IT.ajouterMoisAncien(b, analyse, correspondances));
+}

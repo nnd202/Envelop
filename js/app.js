@@ -3,6 +3,9 @@
 import * as C from './calc.js';
 import * as S from './store.js';
 import * as BA from './bascule.js';
+import * as IT from './importtodo.js';
+import * as EX from './export.js';
+import { vueStats, vueStatsEnveloppe } from './stats.js';
 
 const app = document.getElementById('app');
 const couche = document.getElementById('couche');
@@ -36,6 +39,7 @@ const ICONES = {
   plafonds: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="17" cy="7" r="2"/><circle cx="14" cy="17" r="2"/></svg>',
   fixes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
   reglages: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   bases: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5L12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z"/></svg>',
 };
 
@@ -66,6 +70,7 @@ function route() {
       return vueMois(b, parts[3]);
     }
     if (parts[2] === 'historique') return vueHistorique(b);
+    if (parts[2] === 'stats') return parts[3] ? vueStatsEnveloppe(app, b, parts[3], barre(b, 'stats')) : vueStats(app, b, barre(b, 'stats'));
     if (parts[2] === 'fixes') return vueFixes(b);
     if (parts[2] === 'plafonds') return vuePlafonds(b);
     return vueMois(b);
@@ -83,7 +88,7 @@ function barre(b, actif) {
     ${lien('plafonds', `#/b/${b.id}/plafonds`, 'Plafonds')}
     <button class="plus" data-action="nouvelle-op" aria-label="Ajouter une opération">${ICONES.plus}</button>
     ${lien('fixes', `#/b/${b.id}/fixes`, 'Fixes')}
-    ${lien('bases', '#/', 'Bases')}
+    ${lien('stats', `#/b/${b.id}/stats`, 'Stats')}
   </nav>`;
 }
 
@@ -109,6 +114,7 @@ function vueAccueil() {
       <div class="liste">${lignes || '<div class="vide">Aucune base pour l\'instant.<br>Crée ta première base de budget.</div>'}
       <button class="ajouter" data-action="nouvelle-base">${ICONES.plus} Nouvelle base</button></div>
     </section>
+    <button class="btn btn-principal btn-large" data-action="import-todo" style="margin-bottom:10px">Importer un mois depuis To Do</button>
     ${aDemo ? '' : '<button class="btn btn-second btn-large" data-action="demo">Essayer avec une base de démo</button>'}
     <p class="aide sur-fond" style="margin-top:16px;text-align:center">Tes données restent sur cet appareil, chiffrées par ton mot de passe.</p>`;
 }
@@ -156,6 +162,7 @@ function vueMois(b, mois) {
   const ecart = r.depassement > 0;
   app.innerHTML = `
     <header class="entete">
+      <a class="btn-icone" href="#/" aria-label="Mes budgets">${ICONES.bases}</a>
       <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}${corr ? ' · correction' : lecture ? ' · lecture seule' : ''}</span>${nomMois(m)}</h1>
       <button class="btn-icone" data-action="menu-mois" aria-label="Options">${ICONES.points}</button>
     </header>
@@ -214,7 +221,8 @@ function vueHistorique(b) {
       <a class="btn-icone" href="#/b/${b.id}" aria-label="Retour au mois">${ICONES.retour}</a>
       <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}</span>Historique</h1>
     </header>
-    <button class="btn btn-principal btn-large" data-action="bascule" style="margin-bottom:14px">Basculer vers ${nomMois(C.moisSuivant(courant))}</button>
+    <button class="btn btn-principal btn-large" data-action="bascule" style="margin-bottom:10px">Basculer vers ${nomMois(C.moisSuivant(courant))}</button>
+    <button class="btn btn-second btn-large" data-action="import-ancien" style="margin-bottom:14px">Ajouter ${nomMois(C.moisPrecedent(b.mois[0])).toLowerCase()} depuis To Do</button>
     <section class="carte"><div class="liste">${lignes}</div></section>
     ${barre(b, '')}`;
 }
@@ -792,29 +800,33 @@ function rappelSauvegarde() {
     <div class="actions" style="margin:0"><button class="btn btn-second" data-action="plus-tard">Plus tard</button><button class="btn btn-principal" data-action="sauvegarder">Sauvegarder</button></div></div>`;
 }
 
-async function sauvegarder() {
-  const texte = await S.texteSauvegarde();
-  const nom = S.nomSauvegarde();
-  const fichier = new File([texte], nom, { type: 'text/plain' });
-  const telecharger = () => {
+// Menu de partage du téléphone (Proton Drive, Drive…) ; téléchargement si refusé ou indisponible.
+// Renvoie false si l'utilisateur a fermé le partage sans choisir.
+async function partager(fichiers, titre) {
+  const telecharger = () => fichiers.forEach((f, i) => setTimeout(() => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(fichier);
-    a.download = nom;
+    a.href = URL.createObjectURL(f);
+    a.download = f.name;
     document.body.append(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-  };
-  try {
-    if (navigator.canShare?.({ files: [fichier] })) {
-      try {
-        await navigator.share({ files: [fichier], title: 'Sauvegarde Envelop' });
-      } catch (e) {
-        if (e?.name === 'AbortError') return; // partage fermé sans choisir
-        telecharger(); // partage refusé par le système : on télécharge à la place
-      }
-    } else {
-      telecharger();
+  }, i * 400));
+  if (navigator.canShare?.({ files: fichiers })) {
+    try {
+      await navigator.share({ files: fichiers, title: titre });
+      return true;
+    } catch (e) {
+      if (e?.name === 'AbortError') return false;
     }
+  }
+  telecharger();
+  return true;
+}
+
+async function sauvegarder() {
+  try {
+    const fichier = new File([await S.texteSauvegarde()], S.nomSauvegarde(), { type: 'text/plain' });
+    if (!(await partager([fichier], 'Sauvegarde Envelop'))) return;
     S.noterSauvegarde();
     toast('Sauvegarde créée. Elle est chiffrée avec ton mot de passe.');
     route();
@@ -823,11 +835,11 @@ async function sauvegarder() {
   }
 }
 
-function choisirFichier() {
+function choisirFichier(accept = '.txt,.json,text/plain,application/json') {
   return new Promise((ok) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.txt,.json,text/plain,application/json';
+    input.accept = accept;
     input.addEventListener('change', () => ok(input.files[0] || null));
     input.click();
   });
@@ -907,6 +919,8 @@ async function vueReglages() {
       <button class="ligne" data-action="sauvegarder"><span class="ligne-corps"><div class="ligne-nom">Sauvegarder maintenant</div><div class="ligne-detail">${j === null ? 'Jamais sauvegardé' : `Dernière : ${ilYA(j)}`} · fichier chiffré</div></span><span class="chevron">${ICONES.chevron}</span></button>
       <button class="ligne" data-reg="restaurer"><span class="ligne-corps"><div class="ligne-nom">Restaurer une sauvegarde</div><div class="ligne-detail">Ajouter des bases ou tout remplacer</div></span><span class="chevron">${ICONES.chevron}</span></button>
       ${ligneDossier}
+      <button class="ligne" data-reg="lecteur"><span class="ligne-corps"><div class="ligne-nom">Lecteur de sauvegarde</div><div class="ligne-detail">Page autonome pour ouvrir tes sauvegardes sans l'appli · à garder avec elles</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      <button class="ligne" data-reg="csv"><span class="ligne-corps"><div class="ligne-nom">Export lisible (CSV)</div><div class="ligne-detail">Opérations et synthèse pour tableur · non chiffré</div></span><span class="chevron">${ICONES.chevron}</span></button>
       <label class="ligne"><span class="ligne-corps"><div class="ligne-nom">Rappel</div></span>
         <select data-reg-rappel class="select-court">${[0, 3, 7, 14, 30].map((n) => `<option value="${n}" ${n === r.rappelJours ? 'selected' : ''}>${n ? `tous les ${n} jours` : 'jamais'}</option>`).join('')}</select></label>
     </div></section>
@@ -945,6 +959,23 @@ app.addEventListener('click', async (ev) => {
       return;
     }
     if (a === 'mdp') return fenetreMotDePasse();
+    if (a === 'lecteur') {
+      const html = await (await fetch('lecteur.html')).text();
+      if (await partager([new File([html], 'envelop-lecteur.html', { type: 'text/html' })], 'Lecteur de sauvegarde Envelop')) toast('Lecteur enregistré. Range-le à côté de tes sauvegardes.');
+      return;
+    }
+    if (a === 'csv') {
+      const ok = await confirmer({ titre: 'Export lisible', texte: 'Deux fichiers CSV (opérations et synthèse mensuelle) que n\'importe quel tableur ouvre. Ils ne sont pas chiffrés : range-les dans un endroit protégé, comme ton Proton Drive.', bouton: 'Exporter', danger: false });
+      if (!ok) return;
+      const d = new Date();
+      const h = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+      const etat = { bases: S.bases() };
+      await partager([
+        new File([EX.csvOperations(etat)], `envelop-operations-${h}.csv`, { type: 'text/csv' }),
+        new File([EX.csvSynthese(etat)], `envelop-synthese-${h}.csv`, { type: 'text/csv' }),
+      ], 'Export Envelop');
+      return;
+    }
   } catch (e) {
     if (e?.name !== 'AbortError') alerte(esc(e?.message || e));
   }
@@ -1030,6 +1061,90 @@ function fenetreFinCorrection(b) {
   });
 }
 
+// --- Import To Do -------------------------------------------------------------------
+
+async function importerToDo(b) {
+  const fichier = await choisirFichier('.json,.txt,application/json,text/plain');
+  if (!fichier) return;
+  let json;
+  try { json = JSON.parse(await fichier.text()); } catch { return alerte('Ce fichier n\'est pas un JSON lisible. Copie bien toute la réponse de Graph Explorer.'); }
+  const attendu = b ? C.moisPrecedent(b.mois[0]) : null;
+  const mois = attendu || IT.moisDepuisNom(fichier.name) || C.moisPrecedent(C.moisDe(new Date()));
+  apercuImport(b, json, mois, fichier.name);
+}
+
+function apercuImport(b, json, mois, nomFichier) {
+  let a;
+  try { a = IT.analyser(json, mois); } catch (e) { return alerte(esc(e.message)); }
+  const ancien = !!b;
+  const corr = ancien ? IT.proposerCorrespondances(b, a) : [];
+  const optionsEnv = (i) => `<select data-corr="${i}" class="select-court" style="max-width:130px">
+      <option value="nouvelle">Nouvelle</option>
+      ${b.enveloppes.map((e) => `<option value="${e.id}" ${corr[i] === e.id ? 'selected' : ''}>${esc(e.icone)} ${esc(e.nom)}</option>`).join('')}</select>`;
+  const lignes = a.enveloppes.map((e, i) => `
+    <div class="import-ligne">
+      <div class="import-tete"><span class="pastille" style="width:34px;height:34px;font-size:1rem;border-radius:11px">${esc(e.icone)}</span>
+        <span class="ligne-nom">${esc(e.nom)}</span><span class="badge">${e.ops.length} op.</span>${ancien ? optionsEnv(i) : ''}</div>
+      <div class="import-champs">
+        <label>Plafond<input inputmode="decimal" data-plafond-i="${i}" value="${enCentimesTexte(Math.max(0, e.plafond)) || '0,00'}"></label>
+        <label>🌰 de départ<input inputmode="decimal" data-noisette-i="${i}" value="${enCentimesTexte(e.noisetteLue ?? 0) || '0,00'}"></label>
+      </div>
+    </div>`).join('');
+  const avert = a.avertissements.length ? `<div class="bandeau" style="border:1.5px solid var(--ligne)"><b>À vérifier</b><ul class="liste-simple" style="margin:6px 0 0">${a.avertissements.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : '';
+  ouvrir(`
+    <h2>${ancien ? `Ajouter ${nomMois(mois)}` : `Importer ${nomMois(mois)}`}</h2>
+    <p class="aide" style="margin:0 0 12px">Fichier : ${esc(nomFichier)}. Rien n'est enregistré tant que tu n'as pas validé.</p>
+    ${ancien ? `<p>Ce mois s'ajoute avant ${nomMois(b.mois[0])}, pour l'historique et les statistiques. Il ne modifie aucune 🌰 des mois déjà présents.</p>`
+    : `<label class="champ"><span>Mois de ce fichier</span><input name="mois" type="month" value="${mois}"></label>
+      <div class="deux"><label class="champ"><span>Icône</span><input name="icone" placeholder="💶" maxlength="4" style="text-align:center;font-size:1.4rem;padding:9px 6px"></label>
+      <label class="champ" data-champ="nom"><span>Nom de la base</span><input name="nom" placeholder="Perso" autocomplete="off"></label></div>`}
+    ${avert}
+    <h3 class="sous-titre">${a.enveloppes.length} enveloppes</h3>
+    <p class="aide">Plafond déduit du reste et des dépenses ; 🌰 lue dans To Do (fin du mois précédent).</p>
+    ${lignes}
+    <div class="import-ligne"><div class="import-champs">
+      <label>💶 Revenus<input inputmode="decimal" data-revenus value="${enCentimesTexte(a.revenus || 0) || '0,00'}"></label>
+      <label>🔒 Charges fixes<input disabled value="${a.charges.length} (${C.formatMontant(a.charges.filter((c) => !c.pause).reduce((t, c) => t + c.montant, 0))})"></label>
+    </div></div>
+    ${a.ignores.length ? `<p class="aide">Ignorés : ${a.ignores.map(esc).join(' · ')}</p>` : ''}
+    <div class="actions"><button class="btn btn-second" data-r="annuler">Annuler</button><button class="btn btn-principal" data-r="valider">${ancien ? 'Ajouter ce mois' : 'Créer la base'}</button></div>`, (f) => {
+    f.querySelector('[name=mois]')?.addEventListener('change', (ev) => { if (ev.target.value) apercuImport(b, json, ev.target.value, nomFichier); });
+    f.addEventListener('click', async (ev) => {
+      const r = ev.target.closest('[data-r]')?.dataset.r;
+      if (r === 'annuler') return fermer();
+      if (r !== 'valider') return;
+      let erreur = false;
+      const lireChamp = (input) => {
+        const v = input.value.trim() === '' ? 0 : C.lireMontant(input.value);
+        input.style.borderColor = v == null ? 'var(--baisse)' : '';
+        if (v == null) erreur = true;
+        return v ?? 0;
+      };
+      a.enveloppes.forEach((e, i) => {
+        e.plafond = Math.abs(lireChamp(f.querySelector(`[data-plafond-i="${i}"]`)));
+        e.noisetteLue = lireChamp(f.querySelector(`[data-noisette-i="${i}"]`));
+      });
+      a.revenus = Math.abs(lireChamp(f.querySelector('[data-revenus]')));
+      if (erreur) return;
+      if (ancien) {
+        const choix = a.enveloppes.map((_, i) => f.querySelector(`[data-corr="${i}"]`).value);
+        await S.ajouterMoisAncien(b, a, choix);
+        fermer();
+        aller(`#/b/${b.id}/historique`);
+        route();
+        toast(`${nomMois(mois)} ajouté à l'historique.`, () => S.restaurerCopie(0).then(route));
+      } else {
+        const nom = f.querySelector('[name=nom]').value.trim();
+        if (!nom) { f.querySelector('[data-champ=nom]').classList.add('erreur'); f.querySelector('[name=nom]').focus(); return; }
+        const nb = S.ajouterBaseImportee(a, { nom, icone: f.querySelector('[name=icone]').value.trim() || '💶' });
+        fermer();
+        aller(`#/b/${nb.id}`);
+        toast(`Base « ${nom} » créée depuis ${nomMois(mois).toLowerCase()}.`);
+      }
+    });
+  });
+}
+
 // --- Actions -----------------------------------------------------------------------
 
 function baseCourante() {
@@ -1045,6 +1160,8 @@ app.addEventListener('click', (ev) => {
   switch (action) {
     case 'nouvelle-base': return fenetreBase(null);
     case 'reglages': return aller('#/reglages');
+    case 'import-todo': return importerToDo(null);
+    case 'import-ancien': return importerToDo(b);
     case 'sauvegarder': return sauvegarder();
     case 'plus-tard': S.modifier((e) => { e.reglages.rappelApres = new Date(Date.now() + 864e5).toISOString(); }); return route();
     case 'corriger': return demarrerCorrection(b, el.dataset.mois);
