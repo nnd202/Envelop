@@ -139,3 +139,17 @@ export function creerDemo() {
   }
   return b;
 }
+
+// --- Bascule de mois -----------------------------------------------------------
+
+import * as BA from './bascule.js';
+
+export function basculer(b, repartition) {
+  let suivant;
+  modifier(() => { suivant = BA.appliquer(b, repartition); });
+  return suivant;
+}
+
+export function annulerBascule(b) {
+  modifier(() => BA.annuler(b));
+}

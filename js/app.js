@@ -2,6 +2,7 @@
 // charges fixes, revenus, plafonds et synthèse.
 import * as C from './calc.js';
 import * as S from './store.js';
+import * as BA from './bascule.js';
 
 const app = document.getElementById('app');
 const couche = document.getElementById('couche');
@@ -54,6 +55,11 @@ function route() {
     const b = S.base(parts[1]);
     if (!b) return vueAccueil();
     if (parts[2] === 'e' && parts[3]) return vueEnveloppe(b, parts[3]);
+    if (parts[2] === 'm' && parts[3] && b.mois.includes(parts[3])) {
+      if (parts[4] === 'e' && parts[5]) return vueEnveloppe(b, parts[5], parts[3]);
+      return vueMois(b, parts[3]);
+    }
+    if (parts[2] === 'historique') return vueHistorique(b);
     if (parts[2] === 'fixes') return vueFixes(b);
     if (parts[2] === 'plafonds') return vuePlafonds(b);
     return vueMois(b);
@@ -101,13 +107,16 @@ function vueAccueil() {
 
 // --- Vue : mois en cours --------------------------------------------------------
 
-function vueMois(b) {
-  const m = S.moisCourant(b);
+function vueMois(b, mois) {
+  const courant = S.moisCourant(b);
+  const m = mois || courant;
+  const lecture = m !== courant;
   const r = C.calculMois(b, m);
   const calendrier = C.moisDe(new Date());
+  const lienEnv = (id) => (lecture ? `#/b/${b.id}/m/${m}/e/${id}` : `#/b/${b.id}/e/${id}`);
 
   const enveloppes = r.enveloppes.map((e) => `
-    <a class="ligne" href="#/b/${b.id}/e/${e.env.id}">
+    <a class="ligne" href="${lienEnv(e.env.id)}">
       <span class="pastille">${esc(e.env.icone)}</span>
       <span class="ligne-corps">
         <div class="ligne-nom">${esc(e.env.nom)}${e.env.flechee ? '<span class="point-fleche" title="Épargne fléchée"></span>' : ''}</div>
@@ -115,33 +124,40 @@ function vueMois(b) {
           <span class="reste${negClass(e.reste)}">${euros(e.reste)}</span>
           <span class="noisette${negClass(e.direct)}">🌰 ${euros(e.direct, { euro: false })} ${fleche(e.tendance)}</span>
           ${alerteNegative(e.moisNegatifs)}
+          ${lecture ? `<span>plafond ${euros(e.plafond)}</span>` : ''}
         </div>
       </span>
       <span class="chevron">${ICONES.chevron}</span>
     </a>`).join('');
 
-  const bandeau = calendrier > m
-    ? `<div class="bandeau">${nomMois(calendrier)} a commencé. La bascule de mois arrive avec l'étape 2 d'Envelop.</div>` : '';
+  let bandeau = '';
+  if (lecture) {
+    bandeau = `<div class="bandeau">Mois terminé, en lecture seule. <a href="#/b/${b.id}">Revenir à ${nomMois(courant)}</a></div>`;
+  } else if (calendrier > m) {
+    bandeau = `<div class="bandeau bandeau-action">${nomMois(calendrier)} a commencé.
+      <button class="btn btn-principal" data-action="bascule">Basculer vers ${nomMois(C.moisSuivant(m))}</button></div>`;
+  }
+  const ajout = (html) => (lecture ? '' : html);
 
   const ecart = r.depassement > 0;
   app.innerHTML = `
     <header class="entete">
-      <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}</span>${nomMois(m)}</h1>
-      <button class="btn-icone" data-action="menu-base" aria-label="Options de la base">${ICONES.points}</button>
+      <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}${lecture ? ' · lecture seule' : ''}</span>${nomMois(m)}</h1>
+      <button class="btn-icone" data-action="menu-mois" aria-label="Options">${ICONES.points}</button>
     </header>
     ${bandeau}
     <section class="carte">
       <h2 class="carte-titre">Enveloppes</h2>
       <div class="liste">${enveloppes || '<div class="vide">Aucune enveloppe. Ajoute la première ci-dessous.</div>'}
-      <button class="ajouter" data-action="nouvelle-enveloppe">${ICONES.plus} Ajouter une enveloppe</button></div>
+      ${ajout(`<button class="ajouter" data-action="nouvelle-enveloppe">${ICONES.plus} Ajouter une enveloppe</button>`)}</div>
     </section>
 
     <section class="carte">
       <div class="liste">
-        <a class="ligne" href="#/b/${b.id}/fixes"><span class="pastille">🔒</span>
+        <a class="ligne" href="${lecture ? 'javascript:void 0' : `#/b/${b.id}/fixes`}"><span class="pastille">🔒</span>
           <span class="ligne-corps"><div class="ligne-nom">Incompressible</div><div class="ligne-detail">${r.chargesOps.length} charge${r.chargesOps.length > 1 ? 's' : ''} fixe${r.chargesOps.length > 1 ? 's' : ''}</div></span>
           <span class="ligne-montant">${euros(r.incompressible)}</span><span class="chevron">${ICONES.chevron}</span></a>
-        <a class="ligne" href="#/b/${b.id}/fixes"><span class="pastille">💶</span>
+        <a class="ligne" href="${lecture ? 'javascript:void 0' : `#/b/${b.id}/fixes`}"><span class="pastille">💶</span>
           <span class="ligne-corps"><div class="ligne-nom">Revenus</div><div class="ligne-detail">${r.revenusOps.length} entrée${r.revenusOps.length > 1 ? 's' : ''}</div></span>
           <span class="ligne-montant">${euros(r.revenus)}</span><span class="chevron">${ICONES.chevron}</span></a>
       </div>
@@ -163,19 +179,43 @@ function vueMois(b) {
         <div class="synthese-ligne"><span>Fin du mois précédent</span><span>${euros(r.epargneAcquise)}</span></div>
       </div>
     </section>
-    ${barre(b, 'mois')}`;
+    ${barre(b, lecture ? '' : 'mois')}`;
+}
+
+// --- Vue : historique des mois ----------------------------------------------------
+
+function vueHistorique(b) {
+  const courant = S.moisCourant(b);
+  const lignes = [...b.mois].reverse().map((m) => {
+    const r = C.calculMois(b, m);
+    const enCours = m === courant;
+    return `<a class="ligne" href="${enCours ? `#/b/${b.id}` : `#/b/${b.id}/m/${m}`}">
+      <span class="pastille" style="font-size:1rem">${enCours ? '●' : '○'}</span>
+      <span class="ligne-corps"><div class="ligne-nom">${nomMois(m)} ${enCours ? '<span class="badge recurrente">En cours</span>' : '<span class="badge">Lecture seule</span>'}</div>
+      <div class="ligne-detail">${r.enveloppes.length} enveloppes · marge réelle ${euros(r.margeReelle)} · 🌰 ${euros(r.epargneGlobale)}</div></span>
+      <span class="chevron">${ICONES.chevron}</span></a>`;
+  }).join('');
+  app.innerHTML = `
+    <header class="entete">
+      <a class="btn-icone" href="#/b/${b.id}" aria-label="Retour au mois">${ICONES.retour}</a>
+      <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}</span>Historique</h1>
+    </header>
+    <button class="btn btn-principal btn-large" data-action="bascule" style="margin-bottom:14px">Basculer vers ${nomMois(C.moisSuivant(courant))}</button>
+    <section class="carte"><div class="liste">${lignes}</div></section>
+    ${barre(b, '')}`;
 }
 
 // --- Vue : détail d'une enveloppe -------------------------------------------------
 
-function vueEnveloppe(b, envId) {
-  const m = S.moisCourant(b);
+function vueEnveloppe(b, envId, mois) {
+  const m = mois || S.moisCourant(b);
+  const lecture = m !== S.moisCourant(b);
   const r = C.calculMois(b, m);
   const e = r.enveloppes.find((x) => x.env.id === envId);
-  if (!e) return aller(`#/b/${b.id}`);
+  if (!e) return aller(lecture ? `#/b/${b.id}/m/${m}` : `#/b/${b.id}`);
   const ops = [...e.ops].sort((x, y) => (y.date || '').localeCompare(x.date || ''));
   const lignes = ops.map((o) => `
-    <button class="ligne${o.pause ? ' en-pause' : ''}" data-action="modifier-op" data-id="${o.id}">
+    <${lecture ? 'div' : 'button'} class="ligne${o.pause ? ' en-pause' : ''}" ${lecture ? '' : `data-action="modifier-op" data-id="${o.id}"`}>
       <span class="ligne-corps">
         <div class="ligne-nom">${esc(o.libelle || jourCourt(o.date))}</div>
         <div class="ligne-detail">${o.libelle ? `<span>${jourCourt(o.date)}</span>` : ''}
@@ -183,30 +223,30 @@ function vueEnveloppe(b, envId) {
           ${o.epargne ? '<span class="badge epargne">🌰 Épargne</span>' : ''}
           ${o.recurrente ? '<span class="badge recurrente">Récurrente</span>' : ''}</div>
       </span>
-      <span class="ligne-montant${o.montant > 0 ? '' : ''}" style="color:${o.montant > 0 ? 'var(--hausse)' : 'inherit'}">${euros(o.montant, { signe: true })}</span>
-    </button>`).join('');
+      <span class="ligne-montant" style="color:${o.montant > 0 ? 'var(--hausse)' : 'inherit'}">${euros(o.montant, { signe: true })}</span>
+    </${lecture ? 'div' : 'button'}>`).join('');
 
   app.innerHTML = `
     <header class="entete">
-      <a class="btn-icone" href="#/b/${b.id}" aria-label="Retour au mois">${ICONES.retour}</a>
-      <h1><span class="sur-titre">${nomMois(m)}</span>&nbsp;</h1>
-      <button class="btn-icone" data-action="modifier-enveloppe" data-id="${e.env.id}" aria-label="Modifier l'enveloppe">${ICONES.points}</button>
+      <a class="btn-icone" href="${lecture ? `#/b/${b.id}/m/${m}` : `#/b/${b.id}`}" aria-label="Retour au mois">${ICONES.retour}</a>
+      <h1><span class="sur-titre">${nomMois(m)}${lecture ? ' · lecture seule' : ''}</span>&nbsp;</h1>
+      ${lecture ? '' : `<button class="btn-icone" data-action="modifier-enveloppe" data-id="${e.env.id}" aria-label="Modifier l'enveloppe">${ICONES.points}</button>`}
     </header>
     <section class="carte heros">
       <span class="pastille">${esc(e.env.icone)}</span>
       <h2>${esc(e.env.nom)}</h2>
       <div class="grand${negClass(e.reste)}">${euros(e.reste)}</div>
-      <div class="sous">reste ce mois-ci sur ${euros(e.plafond)} de plafond</div>
+      <div class="sous">reste ${lecture ? 'en fin de mois' : 'ce mois-ci'} sur ${euros(e.plafond)} de plafond</div>
       <div class="heros-chiffres">
         <div>🌰 fin du mois dernier<b>${euros(e.acquise)}</b></div>
-        <div>🌰 en direct<b class="noisette${negClass(e.direct)}">${euros(e.direct)} ${fleche(e.tendance)}</b></div>
+        <div>🌰 ${lecture ? 'fin de ce mois' : 'en direct'}<b class="noisette${negClass(e.direct)}">${euros(e.direct)} ${fleche(e.tendance)}</b></div>
       </div>
       ${e.moisNegatifs >= 2 ? `<div style="margin-top:10px">${alerteNegative(e.moisNegatifs)}</div>` : ''}
     </section>
     <section class="carte">
       <h2 class="carte-titre">Opérations</h2>
       <div class="liste">${lignes || '<div class="vide">Aucune opération ce mois-ci.</div>'}
-      <button class="ajouter" data-action="nouvelle-op" data-cible="${e.env.id}">${ICONES.plus} Ajouter une opération</button></div>
+      ${lecture ? '' : `<button class="ajouter" data-action="nouvelle-op" data-cible="${e.env.id}">${ICONES.plus} Ajouter une opération</button>`}</div>
     </section>
     ${barre(b, '')}`;
 }
@@ -501,6 +541,107 @@ function fenetreBase(b) {
   });
 }
 
+function fenetreMenu(b) {
+  const courant = S.moisCourant(b);
+  const annulable = BA.annulable(b);
+  ouvrir(`
+    <h2>${esc(b.icone)} ${esc(b.nom)}</h2>
+    <div class="liste menu">
+      <button class="ligne" data-m="historique"><span class="ligne-corps"><div class="ligne-nom">Historique des mois</div><div class="ligne-detail">${b.mois.length} mois</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      <button class="ligne" data-m="bascule"><span class="ligne-corps"><div class="ligne-nom">Basculer vers ${nomMois(C.moisSuivant(courant))}</div><div class="ligne-detail">Clôture ${nomMois(courant)} et répartit sa marge</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      ${annulable ? `<button class="ligne" data-m="annuler"><span class="ligne-corps"><div class="ligne-nom">Annuler la bascule vers ${nomMois(courant)}</div><div class="ligne-detail">Possible tant que rien n'a été saisi dans ce mois</div></span></button>` : ''}
+      <button class="ligne" data-m="base"><span class="ligne-corps"><div class="ligne-nom">Modifier ou supprimer la base</div></span><span class="chevron">${ICONES.chevron}</span></button>
+    </div>`, (f) => {
+    f.addEventListener('click', async (ev) => {
+      const a = ev.target.closest('[data-m]')?.dataset.m;
+      if (a === 'historique') { fermer(); return aller(`#/b/${b.id}/historique`); }
+      if (a === 'bascule') return fenetreBascule(b);
+      if (a === 'base') return fenetreBase(b);
+      if (a === 'annuler') {
+        const ok = await confirmer({
+          titre: `Annuler la bascule vers ${nomMois(courant)} ?`,
+          texte: `${nomMois(courant)} sera retiré, avec les opérations reportées et la répartition de la marge. ${nomMois(C.moisPrecedent(courant))} redevient le mois en cours.`,
+          bouton: 'Annuler la bascule',
+        });
+        if (ok) { S.annulerBascule(b); aller(`#/b/${b.id}`); route(); }
+      }
+    });
+  });
+}
+
+function fenetreBascule(b) {
+  const p = BA.preparer(b);
+  const etat = { reserve: 0, rep: {} };
+  const lignes = p.enveloppes.map((e) => `
+    <div class="plafond-ligne">
+      <span class="pastille" style="width:34px;height:34px;font-size:1rem;border-radius:11px">${esc(e.icone)}</span>
+      <span class="ligne-nom">${esc(e.nom)}</span>
+      <input inputmode="decimal" data-rep="${e.id}" placeholder="0,00" aria-label="Part pour ${esc(e.nom)}">
+    </div>`).join('');
+  const nbRec = p.recurrentes.length;
+  ouvrir(`
+    <h2>Basculer vers ${nomMois(p.suivant)}</h2>
+    <p>${nomMois(p.mois)} passera en lecture seule. ${nbRec} opération${nbRec > 1 ? 's' : ''} récurrente${nbRec > 1 ? 's' : ''} ${nbRec > 1 ? 'seront reportées' : 'sera reportée'}, et les dépenses repartent de zéro.</p>
+    ${p.marge > 0 ? `
+      <div class="marge" style="margin-bottom:12px"><small>Marge réelle de ${nomMois(p.mois)} à répartir</small><strong>${euros(p.marge)}</strong></div>
+      <p class="aide" style="margin:0 0 10px">Chaque part versée à une enveloppe est inscrite au 1er ${nomMois(p.suivant).toLowerCase()} comme une opération 🌰 Épargne : elle remonte sa 🌰 sans toucher au reste du mois. La Réserve compte dans l'épargne globale.</p>
+      <div class="carte" style="box-shadow:none;border:1.5px solid var(--ligne)">
+        <div class="plafond-ligne"><span class="pastille" style="width:34px;height:34px;font-size:1rem;border-radius:11px">🏦</span><span class="ligne-nom">Réserve</span><input inputmode="decimal" data-reserve placeholder="0,00" aria-label="Part pour la Réserve"></div>
+        ${lignes}
+      </div>
+      <div class="synthese-ligne forte"><span>Reste à répartir</span><span data-reste>${euros(p.marge)}</span></div>
+      <button class="btn btn-second btn-large" data-b="tout-reserve" style="margin-top:8px">Tout le reste en Réserve</button>`
+    : `<div class="bandeau" style="border:1.5px solid var(--ligne)">Pas de marge à répartir : la marge réelle de ${nomMois(p.mois)} est de ${euros(p.margeReelle)}.</div>`}
+    <div class="actions">
+      <button class="btn btn-second" data-b="annuler">Annuler</button>
+      <button class="btn btn-principal" data-b="valider" ${p.marge > 0 ? 'disabled' : ''}>Basculer</button>
+    </div>`, (f) => {
+    const valider = f.querySelector('[data-b=valider]');
+    const lire = () => {
+      let total = 0;
+      let ok = true;
+      etat.rep = {};
+      f.querySelectorAll('[data-rep]').forEach((i) => {
+        const v = i.value.trim() === '' ? 0 : C.lireMontant(i.value);
+        if (v == null || v < 0) { ok = false; i.style.borderColor = 'var(--baisse)'; return; }
+        i.style.borderColor = '';
+        if (v) etat.rep[i.dataset.rep] = v;
+        total += v;
+      });
+      const ri = f.querySelector('[data-reserve]');
+      if (ri) {
+        const v = ri.value.trim() === '' ? 0 : C.lireMontant(ri.value);
+        if (v == null || v < 0) { ok = false; ri.style.borderColor = 'var(--baisse)'; } else { ri.style.borderColor = ''; etat.reserve = v; total += v; }
+      }
+      const reste = p.marge - total;
+      const r = f.querySelector('[data-reste]');
+      if (r) { r.textContent = euros(reste); r.classList.toggle('negatif', reste !== 0); }
+      valider.disabled = !ok || reste !== 0;
+      return reste;
+    };
+    f.addEventListener('input', lire);
+    f.addEventListener('click', async (ev) => {
+      const a = ev.target.closest('[data-b]')?.dataset.b;
+      if (a === 'annuler') return fermer();
+      if (a === 'tout-reserve') {
+        const ri = f.querySelector('[data-reserve]');
+        const reste = lire();
+        const actuel = ri.value.trim() === '' ? 0 : (C.lireMontant(ri.value) ?? 0);
+        ri.value = enCentimesTexte(Math.max(0, actuel + reste));
+        lire();
+        return;
+      }
+      if (a !== 'valider' || valider.disabled) return;
+      if (p.marge > 0 && lire() !== 0) return;
+      const suivant = S.basculer(b, { repartition: etat.rep, reserve: p.marge > 0 ? etat.reserve : 0 });
+      fermer();
+      aller(`#/b/${b.id}`);
+      route();
+      void suivant;
+    });
+  });
+}
+
 function alerte(texte) {
   ouvrir(`<h2>Envelop</h2><p>${texte}</p><div class="actions"><button class="btn btn-principal" data-r>OK</button></div>`, (f) => {
     f.querySelector('[data-r]').addEventListener('click', fermer);
@@ -523,6 +664,8 @@ app.addEventListener('click', (ev) => {
     case 'nouvelle-base': return fenetreBase(null);
     case 'demo': { const d = S.creerDemo(); return aller(`#/b/${d.id}`); }
     case 'menu-base': return fenetreBase(b);
+    case 'menu-mois': return fenetreMenu(b);
+    case 'bascule': return fenetreBascule(b);
     case 'nouvelle-enveloppe': return fenetreEnveloppe(b, null);
     case 'modifier-enveloppe': return fenetreEnveloppe(b, id);
     case 'nouvelle-op': return fenetreOperation(b, { cible });

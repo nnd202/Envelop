@@ -164,3 +164,8 @@ button { cursor: pointer; }
 .ordre { display: flex; flex-direction: column; gap: 2px; }
 .ordre button { border: 0; background: #f1f6f8; border-radius: 7px; width: 28px; height: 20px; color: var(--petrole); font-size: 0.7rem; line-height: 1; }
 .ordre button:disabled { opacity: 0.3; }
+
+.bandeau a { color: var(--teal); font-weight: 600; }
+.bandeau-action { display: flex; flex-direction: column; gap: 10px; }
+.btn:disabled { opacity: 0.45; }
+.menu .ligne { padding-left: 4px; padding-right: 4px; }

@@ -101,3 +101,41 @@ assert.equal(C.moisSuivant('2026-12'), '2027-01');
 assert.equal(C.moisPrecedent('2026-01'), '2025-12');
 
 console.log('Tous les tests du moteur passent.');
+
+// --- Bascule ---------------------------------------------------------------
+const BA = await import('../js/bascule.js');
+const bb = JSON.parse(JSON.stringify(base));
+bb.operations.push(op('2026-03', 'a', -1500, { recurrente: true, date: '2026-03-31', libelle: 'Abonnement' }));
+bb.operations.find((o) => o.cible === 'charge' && !o.pause).recurrente = true;
+bb.operations.find((o) => o.cible === 'charge' && o.pause).recurrente = true;
+bb.operations.find((o) => o.cible === 'revenu' && !o.pause).recurrente = true;
+const prep = BA.preparer(bb);
+assert.equal(prep.suivant, '2026-04');
+// marge réelle de mars = 100000 - 30000 - 60000 - dépassement(0) = 10000
+assert.equal(prep.marge, 10000);
+assert.throws(() => BA.appliquer(bb, { reserve: 5000 }));
+const avant = C.calculMois(bb, '2026-03');
+BA.appliquer(bb, { repartition: { b: 4000 }, reserve: 6000 });
+assert.deepEqual(bb.mois.slice(-1), ['2026-04']);
+// le mois passé ne bouge pas
+assert.deepEqual(C.calculMois(bb, '2026-03').margePrevue, avant.margePrevue);
+const avril = C.calculMois(bb, '2026-04');
+assert.equal(avril.revenus, 100000);
+assert.equal(avril.incompressible, 60000); // la charge en pause est reportée mais ne compte pas
+assert.equal(avril.chargesOps.length, 2);
+const abo = bb.operations.find((o) => o.mois === '2026-04' && o.libelle === 'Abonnement');
+assert.equal(abo.date, '2026-04-30'); // 31 → 30 en avril
+const lo = avril.enveloppes.find((e) => e.env.id === 'b');
+assert.equal(lo.reste, 5000); // le versement ne gonfle pas le reste
+assert.equal(lo.acquise, C.noisette(bb, bb.enveloppes[1], '2026-03'));
+assert.equal(lo.direct, lo.acquise + 5000 + 4000);
+assert.equal(avril.reserve, 3000 + 6000);
+assert.equal(BA.annulable(bb), true);
+BA.annuler(bb);
+assert.deepEqual(bb.mois.slice(-1), ['2026-03']);
+assert.equal(bb.operations.some((o) => o.mois === '2026-04'), false);
+// une saisie dans le nouveau mois empêche l'annulation
+BA.appliquer(bb, { reserve: 10000 });
+bb.operations.push(op('2026-04', 'a', -100));
+assert.equal(BA.annulable(bb), false);
+console.log('Tous les tests de bascule passent.');

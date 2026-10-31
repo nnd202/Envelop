@@ -28,7 +28,7 @@ JavaScript simple, sans framework ni compilation.
 ## Avancement
 
 1. ✅ Cœur : bases, enveloppes, plafonds, opérations, charges fixes, revenus, synthèse.
-2. Bascule de mois et répartition de la marge.
+2. ✅ Bascule de mois : report des récurrentes, répartition obligatoire de la marge (enveloppes et Réserve), mois passés en lecture seule, historique, annulation de la dernière bascule.
 3. Chiffrement par mot de passe, sauvegarde et import.
 4. Reprise d'un historique Microsoft To Do.
 5. Statistiques et graphiques.
