@@ -1,6 +1,6 @@
 // Hors ligne : réseau d'abord, cache en secours (même principe que Geoquiz).
 // Tout nouveau fichier de l'appli doit être ajouté à CORE (vérifié par tools/check.mjs).
-const CACHE = 'envelop-v3';
+const CACHE = 'envelop-v4';
 const CORE = [
   './',
   'index.html',
@@ -9,6 +9,7 @@ const CORE = [
   'js/app.js',
   'js/bascule.js',
   'js/calc.js',
+  'js/crypto.js',
   'js/store.js',
   'icons/icon-192.png',
   'icons/icon-512.png',

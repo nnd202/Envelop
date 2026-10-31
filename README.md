@@ -14,7 +14,7 @@ Web app personnelle de budget par enveloppes : on saisit les dépenses, l'appli 
 
 ## Données
 
-Aucune donnée n'est envoyée nulle part : tout reste dans le navigateur de l'appareil. Le dépôt ne contient que le code et une base de démonstration inventée.
+Aucune donnée n'est envoyée nulle part : tout reste dans le navigateur de l'appareil, chiffré avec le mot de passe de l'utilisateur. Les fichiers de sauvegarde sont chiffrés de la même façon. Le dépôt ne contient que le code et une base de démonstration inventée.
 
 ## Développement
 
@@ -29,6 +29,6 @@ JavaScript simple, sans framework ni compilation.
 
 1. ✅ Cœur : bases, enveloppes, plafonds, opérations, charges fixes, revenus, synthèse.
 2. ✅ Bascule de mois : report des récurrentes, répartition obligatoire de la marge (enveloppes et Réserve), mois passés en lecture seule, historique, annulation de la dernière bascule.
-3. Chiffrement par mot de passe, sauvegarde et import.
+3. ✅ Chiffrement par mot de passe (PBKDF2 + AES-GCM), verrouillage auto, sauvegarde chiffrée (partage ou dossier sur PC), rappel, restauration, copies automatiques, mode correction des mois passés.
 4. Reprise d'un historique Microsoft To Do.
 5. Statistiques et graphiques.

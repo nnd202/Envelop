@@ -135,8 +135,11 @@ button { cursor: pointer; }
 .actions .btn { flex: 1; }
 
 /* --- Fenêtres (bas d'écran) ------------------------------------------------ */
-.couche { position: fixed; inset: 0; background: rgba(33,58,87,0.35); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
-.fenetre { background: var(--blanc); width: 100%; max-width: 520px; border-radius: 28px 28px 0 0; padding: 10px 20px calc(22px + env(safe-area-inset-bottom)); max-height: 92vh; overflow-y: auto; animation: monte 0.18s ease-out; }
+/* La couche suit la zone réellement visible (visualViewport, mise à jour en JS) :
+   la fenêtre reste collée en bas même quand les barres du navigateur ou le clavier bougent. */
+.couche { position: fixed; left: 0; right: 0; top: var(--vv-top, 0px); height: var(--vv-h, 100%); background: rgba(33,58,87,0.35); z-index: 20; display: flex; align-items: flex-end; justify-content: center; overscroll-behavior: contain; }
+.fenetre { background: var(--blanc); width: 100%; max-width: 520px; border-radius: 28px 28px 0 0; padding: 10px 20px calc(22px + env(safe-area-inset-bottom)); max-height: calc(var(--vv-h, 100vh) * 0.94); overflow-y: auto; overscroll-behavior: contain; animation: monte 0.18s ease-out; }
+body.fige { overflow: hidden; }
 .fenetre .poignee { width: 44px; height: 5px; border-radius: 3px; background: #dbe5ea; margin: 2px auto 12px; }
 .fenetre h2 { margin: 0 0 14px; font-size: 1.2rem; }
 .fenetre p { color: var(--texte-doux); line-height: 1.45; }
@@ -169,3 +172,16 @@ button { cursor: pointer; }
 .bandeau-action { display: flex; flex-direction: column; gap: 10px; }
 .btn:disabled { opacity: 0.45; }
 .menu .ligne { padding-left: 4px; padding-right: 4px; }
+
+.acces { padding: 22px 20px; }
+.acces p { color: var(--texte-doux); line-height: 1.45; margin-top: 0; }
+.cadenas { font-size: 2.4rem; text-align: center; margin: 4px 0 14px; }
+.coche { display: flex; gap: 10px; align-items: flex-start; font-size: 0.88rem; color: var(--texte-doux); margin: 4px 0 16px; line-height: 1.4; }
+.coche input { width: 20px; height: 20px; margin-top: 1px; accent-color: var(--teal); flex: none; }
+.message-erreur, .acces .message-erreur { color: var(--baisse); font-size: 0.9rem; margin: 0 0 12px; }
+.lien { background: none; border: 0; color: var(--teal); font-weight: 600; padding: 12px; display: block; margin: 6px auto 0; }
+.liste-simple { margin: 0 0 12px; padding-left: 20px; color: var(--texte); line-height: 1.7; }
+.select-court { border: 1.5px solid #dbe6ec; border-radius: 12px; padding: 8px 10px; background: white; }
+.bandeau-correction { background: #fff8e8; color: #7a5300; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--barre) + 22px + env(safe-area-inset-bottom)); width: calc(100% - 28px); max-width: 490px; background: var(--nuit); color: white; border-radius: 16px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; justify-content: space-between; font-size: 0.9rem; z-index: 30; box-shadow: 0 10px 26px rgba(0,0,0,0.25); }
+.toast button { background: none; border: 0; color: var(--menthe); font-weight: 700; padding: 4px 6px; }

@@ -139,3 +139,13 @@ BA.appliquer(bb, { reserve: 10000 });
 bb.operations.push(op('2026-04', 'a', -100));
 assert.equal(BA.annulable(bb), false);
 console.log('Tous les tests de bascule passent.');
+
+// --- Chiffrement ---------------------------------------------------------------
+const K = await import('../js/crypto.js');
+const sel = K.nouveauSel();
+const k1 = await K.deriverCle('un mot de passe', sel, 1000);
+const k2 = await K.deriverCle('autre chose', sel, 1000);
+const paquet = await K.chiffrer(k1, { bases: [{ nom: 'Test €🌰' }] });
+assert.deepEqual(await K.dechiffrer(k1, paquet), { bases: [{ nom: 'Test €🌰' }] });
+await assert.rejects(() => K.dechiffrer(k2, paquet));
+console.log('Tous les tests de chiffrement passent.');

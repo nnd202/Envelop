@@ -12,6 +12,8 @@ const couche = document.getElementById('couche');
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const euros = (c, opts) => C.formatMontant(c, opts);
 const negClass = (c) => (c < 0 ? ' negatif' : '');
+const enCorrection = (b, m) => { const c = S.correctionEnCours(); return !!c && c.baseId === b.id && c.mois === m; };
+const estLecture = (b, m) => m !== S.moisCourant(b) && !enCorrection(b, m);
 const enCentimesTexte = (c) => (c ? (c / 100).toFixed(2).replace('.', ',') : '');
 
 function nomMois(m, { court = false } = {}) {
@@ -33,6 +35,7 @@ const ICONES = {
   mois: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   plafonds: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="17" cy="7" r="2"/><circle cx="14" cy="17" r="2"/></svg>',
   fixes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+  reglages: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   bases: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5L12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z"/></svg>',
 };
 
@@ -50,6 +53,8 @@ function alerteNegative(n) {
 // --- Navigation ------------------------------------------------------------------
 
 function route() {
+  if (S.statut() !== 'ouvert') return vueAcces();
+  if (location.hash === '#/reglages') return vueReglages();
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'b' && parts[1]) {
     const b = S.base(parts[1]);
@@ -57,6 +62,7 @@ function route() {
     if (parts[2] === 'e' && parts[3]) return vueEnveloppe(b, parts[3]);
     if (parts[2] === 'm' && parts[3] && b.mois.includes(parts[3])) {
       if (parts[4] === 'e' && parts[5]) return vueEnveloppe(b, parts[5], parts[3]);
+      if (parts[4] === 'fixes') return vueFixes(b, parts[3]);
       return vueMois(b, parts[3]);
     }
     if (parts[2] === 'historique') return vueHistorique(b);
@@ -96,13 +102,15 @@ function vueAccueil() {
   }).join('');
   const aDemo = liste.some((b) => b.nom === 'Démo');
   app.innerHTML = `
-    <header class="entete"><h1><span class="sur-titre">Envelop</span>Mes budgets</h1></header>
+    <header class="entete"><h1><span class="sur-titre">Envelop</span>Mes budgets</h1>
+      <button class="btn-icone" data-action="reglages" aria-label="Réglages">${ICONES.reglages}</button></header>
+    ${rappelSauvegarde()}
     <section class="carte">
       <div class="liste">${lignes || '<div class="vide">Aucune base pour l\'instant.<br>Crée ta première base de budget.</div>'}
       <button class="ajouter" data-action="nouvelle-base">${ICONES.plus} Nouvelle base</button></div>
     </section>
     ${aDemo ? '' : '<button class="btn btn-second btn-large" data-action="demo">Essayer avec une base de démo</button>'}
-    <p class="aide sur-fond" style="margin-top:16px;text-align:center">Tes données restent dans ce navigateur, sur cet appareil.</p>`;
+    <p class="aide sur-fond" style="margin-top:16px;text-align:center">Tes données restent sur cet appareil, chiffrées par ton mot de passe.</p>`;
 }
 
 // --- Vue : mois en cours --------------------------------------------------------
@@ -110,10 +118,13 @@ function vueAccueil() {
 function vueMois(b, mois) {
   const courant = S.moisCourant(b);
   const m = mois || courant;
-  const lecture = m !== courant;
+  const passe = m !== courant;
+  const lecture = estLecture(b, m);
+  const corr = enCorrection(b, m);
   const r = C.calculMois(b, m);
   const calendrier = C.moisDe(new Date());
-  const lienEnv = (id) => (lecture ? `#/b/${b.id}/m/${m}/e/${id}` : `#/b/${b.id}/e/${id}`);
+  const lienEnv = (id) => (passe ? `#/b/${b.id}/m/${m}/e/${id}` : `#/b/${b.id}/e/${id}`);
+  const lienFixes = passe ? (corr ? `#/b/${b.id}/m/${m}/fixes` : 'javascript:void 0') : `#/b/${b.id}/fixes`;
 
   const enveloppes = r.enveloppes.map((e) => `
     <a class="ligne" href="${lienEnv(e.env.id)}">
@@ -124,40 +135,43 @@ function vueMois(b, mois) {
           <span class="reste${negClass(e.reste)}">${euros(e.reste)}</span>
           <span class="noisette${negClass(e.direct)}">🌰 ${euros(e.direct, { euro: false })} ${fleche(e.tendance)}</span>
           ${alerteNegative(e.moisNegatifs)}
-          ${lecture ? `<span>plafond ${euros(e.plafond)}</span>` : ''}
+          ${passe ? `<span>plafond ${euros(e.plafond)}</span>` : ''}
         </div>
       </span>
       <span class="chevron">${ICONES.chevron}</span>
     </a>`).join('');
 
-  let bandeau = '';
-  if (lecture) {
-    bandeau = `<div class="bandeau">Mois terminé, en lecture seule. <a href="#/b/${b.id}">Revenir à ${nomMois(courant)}</a></div>`;
+  let bandeau = rappelSauvegarde();
+  if (corr) {
+    bandeau += `<div class="bandeau bandeau-action bandeau-correction">Correction de ${nomMois(m)} en cours : les opérations de ce mois sont modifiables.
+      <button class="btn btn-principal" data-action="fin-correction">Terminer la correction…</button></div>`;
+  } else if (lecture) {
+    bandeau += `<div class="bandeau bandeau-action">Mois terminé, en lecture seule. <a href="#/b/${b.id}">Revenir à ${nomMois(courant)}</a>
+      <button class="btn btn-second" data-action="corriger" data-mois="${m}">Corriger ce mois…</button></div>`;
   } else if (calendrier > m) {
-    bandeau = `<div class="bandeau bandeau-action">${nomMois(calendrier)} a commencé.
+    bandeau += `<div class="bandeau bandeau-action">${nomMois(calendrier)} a commencé.
       <button class="btn btn-principal" data-action="bascule">Basculer vers ${nomMois(C.moisSuivant(m))}</button></div>`;
   }
-  const ajout = (html) => (lecture ? '' : html);
 
   const ecart = r.depassement > 0;
   app.innerHTML = `
     <header class="entete">
-      <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}${lecture ? ' · lecture seule' : ''}</span>${nomMois(m)}</h1>
+      <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}${corr ? ' · correction' : lecture ? ' · lecture seule' : ''}</span>${nomMois(m)}</h1>
       <button class="btn-icone" data-action="menu-mois" aria-label="Options">${ICONES.points}</button>
     </header>
     ${bandeau}
     <section class="carte">
       <h2 class="carte-titre">Enveloppes</h2>
       <div class="liste">${enveloppes || '<div class="vide">Aucune enveloppe. Ajoute la première ci-dessous.</div>'}
-      ${ajout(`<button class="ajouter" data-action="nouvelle-enveloppe">${ICONES.plus} Ajouter une enveloppe</button>`)}</div>
+      ${passe ? '' : `<button class="ajouter" data-action="nouvelle-enveloppe">${ICONES.plus} Ajouter une enveloppe</button>`}</div>
     </section>
 
     <section class="carte">
       <div class="liste">
-        <a class="ligne" href="${lecture ? 'javascript:void 0' : `#/b/${b.id}/fixes`}"><span class="pastille">🔒</span>
+        <a class="ligne" href="${lienFixes}"><span class="pastille">🔒</span>
           <span class="ligne-corps"><div class="ligne-nom">Incompressible</div><div class="ligne-detail">${r.chargesOps.length} charge${r.chargesOps.length > 1 ? 's' : ''} fixe${r.chargesOps.length > 1 ? 's' : ''}</div></span>
           <span class="ligne-montant">${euros(r.incompressible)}</span><span class="chevron">${ICONES.chevron}</span></a>
-        <a class="ligne" href="${lecture ? 'javascript:void 0' : `#/b/${b.id}/fixes`}"><span class="pastille">💶</span>
+        <a class="ligne" href="${lienFixes}"><span class="pastille">💶</span>
           <span class="ligne-corps"><div class="ligne-nom">Revenus</div><div class="ligne-detail">${r.revenusOps.length} entrée${r.revenusOps.length > 1 ? 's' : ''}</div></span>
           <span class="ligne-montant">${euros(r.revenus)}</span><span class="chevron">${ICONES.chevron}</span></a>
       </div>
@@ -179,7 +193,7 @@ function vueMois(b, mois) {
         <div class="synthese-ligne"><span>Fin du mois précédent</span><span>${euros(r.epargneAcquise)}</span></div>
       </div>
     </section>
-    ${barre(b, lecture ? '' : 'mois')}`;
+    ${barre(b, passe ? '' : 'mois')}`;
 }
 
 // --- Vue : historique des mois ----------------------------------------------------
@@ -209,10 +223,11 @@ function vueHistorique(b) {
 
 function vueEnveloppe(b, envId, mois) {
   const m = mois || S.moisCourant(b);
-  const lecture = m !== S.moisCourant(b);
+  const passe = m !== S.moisCourant(b);
+  const lecture = estLecture(b, m);
   const r = C.calculMois(b, m);
   const e = r.enveloppes.find((x) => x.env.id === envId);
-  if (!e) return aller(lecture ? `#/b/${b.id}/m/${m}` : `#/b/${b.id}`);
+  if (!e) return aller(passe ? `#/b/${b.id}/m/${m}` : `#/b/${b.id}`);
   const ops = [...e.ops].sort((x, y) => (y.date || '').localeCompare(x.date || ''));
   const lignes = ops.map((o) => `
     <${lecture ? 'div' : 'button'} class="ligne${o.pause ? ' en-pause' : ''}" ${lecture ? '' : `data-action="modifier-op" data-id="${o.id}"`}>
@@ -228,33 +243,35 @@ function vueEnveloppe(b, envId, mois) {
 
   app.innerHTML = `
     <header class="entete">
-      <a class="btn-icone" href="${lecture ? `#/b/${b.id}/m/${m}` : `#/b/${b.id}`}" aria-label="Retour au mois">${ICONES.retour}</a>
-      <h1><span class="sur-titre">${nomMois(m)}${lecture ? ' · lecture seule' : ''}</span>&nbsp;</h1>
-      ${lecture ? '' : `<button class="btn-icone" data-action="modifier-enveloppe" data-id="${e.env.id}" aria-label="Modifier l'enveloppe">${ICONES.points}</button>`}
+      <a class="btn-icone" href="${passe ? `#/b/${b.id}/m/${m}` : `#/b/${b.id}`}" aria-label="Retour au mois">${ICONES.retour}</a>
+      <h1><span class="sur-titre">${nomMois(m)}${lecture ? ' · lecture seule' : passe ? ' · correction' : ''}</span>&nbsp;</h1>
+      ${passe ? '' : `<button class="btn-icone" data-action="modifier-enveloppe" data-id="${e.env.id}" aria-label="Modifier l'enveloppe">${ICONES.points}</button>`}
     </header>
     <section class="carte heros">
       <span class="pastille">${esc(e.env.icone)}</span>
       <h2>${esc(e.env.nom)}</h2>
       <div class="grand${negClass(e.reste)}">${euros(e.reste)}</div>
-      <div class="sous">reste ${lecture ? 'en fin de mois' : 'ce mois-ci'} sur ${euros(e.plafond)} de plafond</div>
+      <div class="sous">reste ${passe ? 'en fin de mois' : 'ce mois-ci'} sur ${euros(e.plafond)} de plafond</div>
       <div class="heros-chiffres">
         <div>🌰 fin du mois dernier<b>${euros(e.acquise)}</b></div>
-        <div>🌰 ${lecture ? 'fin de ce mois' : 'en direct'}<b class="noisette${negClass(e.direct)}">${euros(e.direct)} ${fleche(e.tendance)}</b></div>
+        <div>🌰 ${passe ? 'fin de ce mois' : 'en direct'}<b class="noisette${negClass(e.direct)}">${euros(e.direct)} ${fleche(e.tendance)}</b></div>
       </div>
       ${e.moisNegatifs >= 2 ? `<div style="margin-top:10px">${alerteNegative(e.moisNegatifs)}</div>` : ''}
     </section>
     <section class="carte">
       <h2 class="carte-titre">Opérations</h2>
       <div class="liste">${lignes || '<div class="vide">Aucune opération ce mois-ci.</div>'}
-      ${lecture ? '' : `<button class="ajouter" data-action="nouvelle-op" data-cible="${e.env.id}">${ICONES.plus} Ajouter une opération</button>`}</div>
+      ${lecture ? '' : `<button class="ajouter" data-action="nouvelle-op" data-cible="${e.env.id}" data-mois="${m}">${ICONES.plus} Ajouter une opération</button>`}</div>
     </section>
     ${barre(b, '')}`;
 }
 
 // --- Vue : charges fixes et revenus ---------------------------------------------
 
-function vueFixes(b) {
-  const m = S.moisCourant(b);
+function vueFixes(b, mois) {
+  const m = mois || S.moisCourant(b);
+  if (estLecture(b, m)) return aller(`#/b/${b.id}/m/${m}`);
+  const passe = m !== S.moisCourant(b);
   const r = C.calculMois(b, m);
   const ligne = (o) => `
     <button class="ligne${o.pause ? ' en-pause' : ''}" data-action="modifier-op" data-id="${o.id}">
@@ -263,19 +280,19 @@ function vueFixes(b) {
       <span class="ligne-montant">${euros(o.montant)}</span>
     </button>`;
   app.innerHTML = `
-    <header class="entete"><h1><span class="sur-titre">${nomMois(m)}</span>Fixes</h1></header>
+    <header class="entete">${passe ? `<a class="btn-icone" href="#/b/${b.id}/m/${m}" aria-label="Retour au mois">${ICONES.retour}</a>` : ''}<h1><span class="sur-titre">${nomMois(m)}${passe ? ' · correction' : ''}</span>Fixes</h1></header>
     <section class="carte">
       <h2 class="carte-titre">🔒 Incompressible · ${euros(r.incompressible)}</h2>
       <div class="liste">${r.chargesOps.map(ligne).join('') || '<div class="vide">Aucune charge fixe.</div>'}
-      <button class="ajouter" data-action="nouvelle-op" data-cible="charge">${ICONES.plus} Ajouter une charge fixe</button></div>
+      <button class="ajouter" data-action="nouvelle-op" data-cible="charge" data-mois="${m}">${ICONES.plus} Ajouter une charge fixe</button></div>
     </section>
     <section class="carte">
       <h2 class="carte-titre">💶 Revenus · ${euros(r.revenus)}</h2>
       <div class="liste">${r.revenusOps.map(ligne).join('') || '<div class="vide">Aucun revenu.</div>'}
-      <button class="ajouter" data-action="nouvelle-op" data-cible="revenu">${ICONES.plus} Ajouter un revenu</button></div>
+      <button class="ajouter" data-action="nouvelle-op" data-cible="revenu" data-mois="${m}">${ICONES.plus} Ajouter un revenu</button></div>
     </section>
     <p class="aide sur-fond" style="text-align:center">Les opérations récurrentes seront reportées automatiquement au mois suivant. Une opération en pause reste visible mais ne compte pas.</p>
-    ${barre(b, 'fixes')}`;
+    ${barre(b, passe ? '' : 'fixes')}`;
 }
 
 // --- Vue : plafonds --------------------------------------------------------------
@@ -307,15 +324,30 @@ function vuePlafonds(b) {
 
 // --- Fenêtres ---------------------------------------------------------------------
 
+// Zone visible réelle : suit le repli des barres du navigateur et l'ouverture du clavier.
+function majZoneVisible() {
+  const vv = window.visualViewport;
+  const racine = document.documentElement.style;
+  racine.setProperty('--vv-h', `${vv ? vv.height : window.innerHeight}px`);
+  racine.setProperty('--vv-top', `${vv ? vv.offsetTop : 0}px`);
+}
+window.visualViewport?.addEventListener('resize', majZoneVisible);
+window.visualViewport?.addEventListener('scroll', majZoneVisible);
+window.addEventListener('resize', majZoneVisible);
+majZoneVisible();
+
 function ouvrir(html, initialiser) {
+  majZoneVisible();
   couche.innerHTML = `<div class="fenetre" role="dialog" aria-modal="true"><div class="poignee"></div>${html}</div>`;
   couche.hidden = false;
+  document.body.classList.add('fige');
   initialiser?.(couche.firstElementChild);
 }
 
 function fermer() {
   couche.hidden = true;
   couche.innerHTML = '';
+  document.body.classList.remove('fige');
 }
 
 couche.addEventListener('click', (ev) => { if (ev.target === couche) fermer(); });
@@ -350,8 +382,8 @@ function basculerPuces(f, etat, apres) {
 }
 
 // Opération : enveloppe (montant signé), charge fixe ou revenu (montant positif).
-function fenetreOperation(b, { cible, op }) {
-  const m = S.moisCourant(b);
+function fenetreOperation(b, { cible, op, mois }) {
+  const m = op?.mois || mois || S.moisCourant(b);
   const envs = C.enveloppesDuMois(b, m);
   const existante = !!op;
   cible = op?.cible || cible || envs[0]?.id;
@@ -521,7 +553,7 @@ function fenetreBase(b) {
           texte: 'Tous ses mois, enveloppes et opérations seront effacés de cet appareil. Cette action est définitive.',
           bouton: 'Supprimer définitivement',
         });
-        if (ok) { S.supprimerBase(b.id); aller('#/'); }
+        if (ok) { await S.prendreCopie(`Avant suppression de la base ${b.nom}`); S.supprimerBase(b.id); aller('#/'); }
         return;
       }
       if (a !== 'enregistrer') return;
@@ -648,6 +680,348 @@ function alerte(texte) {
   });
 }
 
+// --- Accès : création du mot de passe, déverrouillage ---------------------------
+
+function vueAcces() {
+  const st = S.statut();
+  document.querySelector('.toast')?.remove();
+  document.body.classList.remove('fige');
+  couche.hidden = true;
+  if (st === 'verrouille') {
+    app.innerHTML = `
+      <header class="entete"><h1><span class="sur-titre">Envelop</span>Déverrouiller</h1></header>
+      <form class="carte acces" data-form="deverrouiller">
+        <div class="cadenas">🔒</div>
+        <label class="champ"><span>Mot de passe</span><input name="mdp" type="password" autocomplete="current-password" required></label>
+        <p class="message-erreur" data-erreur hidden>Mot de passe incorrect.</p>
+        <button class="btn btn-principal btn-large">Déverrouiller</button>
+        <button type="button" class="lien" data-action-acces="oubli">Mot de passe oublié ?</button>
+      </form>`;
+    setTimeout(() => app.querySelector('[name=mdp]')?.focus(), 80);
+    return;
+  }
+  const migration = st === 'clair';
+  app.innerHTML = `
+    <header class="entete"><h1><span class="sur-titre">Envelop</span>Protège tes données</h1></header>
+    <form class="carte acces" data-form="creer">
+      <p>${migration ? 'Tes données vont être chiffrées sur cet appareil.' : 'Tes données seront chiffrées sur cet appareil.'} Personne ne peut les lire sans ce mot de passe, pas même Envelop.</p>
+      <label class="champ"><span>Mot de passe (8 caractères minimum)</span><input name="mdp" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label class="champ"><span>Confirmation</span><input name="mdp2" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label class="coche"><input type="checkbox" name="ok" required> J'ai rangé ce mot de passe dans mon gestionnaire. Sans lui, mes données et mes sauvegardes sont perdues.</label>
+      <p class="message-erreur" data-erreur hidden></p>
+      <button class="btn btn-principal btn-large">Créer et chiffrer</button>
+    </form>`;
+}
+
+app.addEventListener('submit', async (ev) => {
+  const form = ev.target.closest('[data-form]');
+  if (!form) return;
+  ev.preventDefault();
+  const erreur = form.querySelector('[data-erreur]');
+  const bouton = form.querySelector('.btn-principal');
+  const mdp = form.querySelector('[name=mdp]').value;
+  bouton.disabled = true;
+  if (form.dataset.form === 'deverrouiller') {
+    bouton.textContent = 'Vérification…';
+    const ok = await S.deverrouiller(mdp);
+    if (ok) return route();
+    erreur.hidden = false;
+    bouton.disabled = false;
+    bouton.textContent = 'Déverrouiller';
+    return;
+  }
+  if (form.dataset.form === 'creer') {
+    const mdp2 = form.querySelector('[name=mdp2]').value;
+    if (mdp !== mdp2) {
+      erreur.textContent = 'Les deux mots de passe ne sont pas identiques.';
+      erreur.hidden = false;
+      bouton.disabled = false;
+      return;
+    }
+    bouton.textContent = 'Chiffrement…';
+    await S.creerMotDePasse(mdp);
+    route();
+  }
+});
+
+app.addEventListener('click', async (ev) => {
+  if (ev.target.closest('[data-action-acces]')?.dataset.actionAcces !== 'oubli') return;
+  ouvrir(`<h2>Mot de passe oublié</h2>
+    <p>Il n'existe aucun moyen de retrouver tes données sans ton mot de passe : elles sont chiffrées, et rien n'est envoyé nulle part.</p>
+    <p>Tu peux tout effacer sur cet appareil et repartir de zéro, puis restaurer une sauvegarde avec le mot de passe qui la protégeait.</p>
+    <label class="champ"><span>Pour confirmer, tape EFFACER</span><input name="conf" autocomplete="off"></label>
+    <div class="actions"><button class="btn btn-second" data-r="0">Annuler</button><button class="btn btn-danger" data-r="1">Tout effacer</button></div>`, (f) => {
+    f.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-r]')?.dataset.r;
+      if (r === '0') return fermer();
+      if (r === '1' && f.querySelector('[name=conf]').value.trim().toUpperCase() === 'EFFACER') {
+        S.toutEffacer();
+        fermer();
+        route();
+      }
+    });
+  });
+});
+
+// Verrouillage automatique après 5 minutes en arrière-plan.
+let cacheLe = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { cacheLe = Date.now(); return; }
+  if (cacheLe && Date.now() - cacheLe > 5 * 60 * 1000 && S.statut() === 'ouvert' && !S.correctionEnCours()) {
+    S.verrouiller();
+    route();
+  }
+});
+
+// --- Sauvegarde ------------------------------------------------------------------
+
+function joursDepuis(iso) {
+  return iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null;
+}
+
+const ilYA = (j) => (j === 0 ? 'aujourd\'hui' : j === 1 ? 'hier' : `il y a ${j} jours`);
+
+function rappelSauvegarde() {
+  const r = S.reglages();
+  if (!r.rappelJours || !S.bases().length) return '';
+  if (r.rappelApres && new Date(r.rappelApres) > new Date()) return '';
+  const j = joursDepuis(r.derniereSauvegarde);
+  if (j !== null && j < r.rappelJours) return '';
+  const texte = j === null ? 'Aucune sauvegarde pour l\'instant.' : `Dernière sauvegarde ${ilYA(j)}.`;
+  return `<div class="bandeau bandeau-action">${texte}
+    <div class="actions" style="margin:0"><button class="btn btn-second" data-action="plus-tard">Plus tard</button><button class="btn btn-principal" data-action="sauvegarder">Sauvegarder</button></div></div>`;
+}
+
+async function sauvegarder() {
+  const texte = await S.texteSauvegarde();
+  const nom = S.nomSauvegarde();
+  const fichier = new File([texte], nom, { type: 'application/json' });
+  try {
+    if (navigator.canShare?.({ files: [fichier] })) {
+      await navigator.share({ files: [fichier], title: 'Sauvegarde Envelop' });
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(fichier);
+      a.download = nom;
+      document.body.append(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    }
+    S.noterSauvegarde();
+    toast('Sauvegarde créée. Elle est chiffrée avec ton mot de passe.');
+    route();
+  } catch (e) {
+    if (e?.name !== 'AbortError') alerte(`La sauvegarde n'a pas pu être faite : ${esc(e?.message || e)}`);
+  }
+}
+
+function choisirFichier() {
+  return new Promise((ok) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.addEventListener('change', () => ok(input.files[0] || null));
+    input.click();
+  });
+}
+
+function demanderMotDePasse(titre, texte) {
+  return new Promise((ok) => {
+    ouvrir(`<h2>${titre}</h2><p>${texte}</p>
+      <label class="champ"><span>Mot de passe</span><input name="mdp" type="password" autocomplete="off"></label>
+      <div class="actions"><button class="btn btn-second" data-r="0">Annuler</button><button class="btn btn-principal" data-r="1">Valider</button></div>`, (f) => {
+      setTimeout(() => f.querySelector('[name=mdp]').focus(), 60);
+      f.addEventListener('click', (e) => {
+        const r = e.target.closest('[data-r]')?.dataset.r;
+        if (!r) return;
+        const v = f.querySelector('[name=mdp]').value;
+        fermer();
+        ok(r === '1' ? v : null);
+      });
+    });
+  });
+}
+
+async function restaurerDepuisFichier() {
+  const fichier = await choisirFichier();
+  if (!fichier) return;
+  const texte = await fichier.text();
+  let lu;
+  try {
+    lu = await S.lireSauvegarde(texte);
+  } catch (e) {
+    if (!(e instanceof S.MotDePasseRequis)) return alerte(esc(e.message));
+    const mdp = await demanderMotDePasse('Mot de passe du fichier', 'Cette sauvegarde a été faite avec un autre mot de passe. Saisis celui qui la protégeait.');
+    if (mdp == null) return;
+    try { lu = await S.lireSauvegarde(texte, mdp); } catch (e2) { return alerte(esc(e2.message)); }
+  }
+  const actuelles = new Set(S.bases().map((b) => b.id));
+  const liste = lu.contenu.bases.map((b) => `<li>${esc(b.icone)} ${esc(b.nom)} · ${b.mois.length} mois${actuelles.has(b.id) ? ' <span class="badge">déjà sur l\'appareil</span>' : ''}</li>`).join('');
+  const date = lu.le ? new Date(lu.le).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' }) : 'date inconnue';
+  ouvrir(`<h2>Restaurer une sauvegarde</h2>
+    <p>Sauvegarde du ${date}, ${lu.contenu.bases.length} base${lu.contenu.bases.length > 1 ? 's' : ''} :</p>
+    <ul class="liste-simple">${liste || '<li>Aucune base</li>'}</ul>
+    <p class="aide">Une copie de tes données actuelles est faite avant, pour pouvoir revenir en arrière.</p>
+    <button class="btn btn-second btn-large" data-r="ajouter">Ajouter seulement les bases absentes</button>
+    <button class="btn btn-danger btn-large" data-r="remplacer" style="margin-top:10px">Remplacer toutes mes données</button>
+    <button class="btn btn-large lien" data-r="annuler" style="margin-top:6px">Annuler</button>`, (f) => {
+    f.addEventListener('click', async (e) => {
+      const r = e.target.closest('[data-r]')?.dataset.r;
+      if (!r) return;
+      if (r === 'annuler') return fermer();
+      if (r === 'remplacer' && !(await confirmer({ titre: 'Remplacer toutes tes données ?', texte: 'Les bases actuelles seront remplacées par celles du fichier. Une copie est faite avant.', bouton: 'Remplacer' }))) return;
+      const res = await S.restaurer(lu.contenu, r);
+      fermer();
+      aller('#/');
+      route();
+      toast(r === 'remplacer' ? 'Données remplacées par la sauvegarde.' : `${res.ajoutees.length} base(s) ajoutée(s), ${res.ignorees.length} déjà présente(s).`, () => S.restaurerCopie(0).then(route));
+    });
+  });
+}
+
+// --- Réglages ---------------------------------------------------------------------
+
+async function vueReglages() {
+  const r = S.reglages();
+  const j = joursDepuis(r.derniereSauvegarde);
+  const dossier = await S.etatDossier().catch(() => ({ etat: 'impossible' }));
+  const copies = S.copies();
+  const ligneDossier = {
+    impossible: '',
+    aucun: `<button class="ligne" data-reg="dossier"><span class="ligne-corps"><div class="ligne-nom">Sauvegarde automatique dans un dossier</div><div class="ligne-detail">Sur PC : un dossier synchronisé par Proton Drive ou Drive</div></span><span class="chevron">${ICONES.chevron}</span></button>`,
+    granted: `<button class="ligne" data-reg="oublier-dossier"><span class="ligne-corps"><div class="ligne-nom">Dossier : ${esc(dossier.nom || '')}</div><div class="ligne-detail">Sauvegarde automatique active · toucher pour l'arrêter</div></span></button>`,
+    prompt: `<button class="ligne" data-reg="reautoriser"><span class="ligne-corps"><div class="ligne-nom">Dossier : ${esc(dossier.nom || '')}</div><div class="ligne-detail negatif">En pause · toucher pour réautoriser</div></span></button>`,
+    denied: `<button class="ligne" data-reg="dossier"><span class="ligne-corps"><div class="ligne-nom">Dossier refusé</div><div class="ligne-detail">Toucher pour en choisir un autre</div></span></button>`,
+  }[dossier.etat] || '';
+  app.innerHTML = `
+    <header class="entete"><a class="btn-icone" href="#/" aria-label="Retour">${ICONES.retour}</a><h1><span class="sur-titre">Envelop</span>Réglages</h1></header>
+    <section class="carte"><h2 class="carte-titre">Sauvegarde</h2><div class="liste">
+      <button class="ligne" data-action="sauvegarder"><span class="ligne-corps"><div class="ligne-nom">Sauvegarder maintenant</div><div class="ligne-detail">${j === null ? 'Jamais sauvegardé' : `Dernière : ${ilYA(j)}`} · fichier chiffré</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      <button class="ligne" data-reg="restaurer"><span class="ligne-corps"><div class="ligne-nom">Restaurer une sauvegarde</div><div class="ligne-detail">Ajouter des bases ou tout remplacer</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      ${ligneDossier}
+      <label class="ligne"><span class="ligne-corps"><div class="ligne-nom">Rappel</div></span>
+        <select data-reg-rappel class="select-court">${[0, 3, 7, 14, 30].map((n) => `<option value="${n}" ${n === r.rappelJours ? 'selected' : ''}>${n ? `tous les ${n} jours` : 'jamais'}</option>`).join('')}</select></label>
+    </div></section>
+    <section class="carte"><h2 class="carte-titre">Copies automatiques</h2><div class="liste">
+      ${copies.map((c, i) => `<button class="ligne" data-reg="copie" data-i="${i}"><span class="ligne-corps"><div class="ligne-nom">${esc(c.raison)}</div><div class="ligne-detail">${new Date(c.le).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</div></span><span class="badge">Restaurer</span></button>`).join('') || '<div class="vide">Aucune copie. Une copie est faite avant chaque import, correction ou suppression de base.</div>'}
+    </div></section>
+    <section class="carte"><h2 class="carte-titre">Sécurité</h2><div class="liste">
+      <button class="ligne" data-reg="mdp"><span class="ligne-corps"><div class="ligne-nom">Changer le mot de passe</div><div class="ligne-detail">Les anciennes sauvegardes gardent l'ancien mot de passe</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      <button class="ligne" data-reg="verrouiller"><span class="ligne-corps"><div class="ligne-nom">Verrouiller maintenant</div><div class="ligne-detail">Verrouillage automatique après 5 minutes en arrière-plan</div></span></button>
+    </div></section>`;
+}
+
+app.addEventListener('change', (ev) => {
+  if (!ev.target.matches('[data-reg-rappel]')) return;
+  const n = Number(ev.target.value);
+  S.modifier((e) => { e.reglages.rappelJours = n; });
+});
+
+app.addEventListener('click', async (ev) => {
+  const el = ev.target.closest('[data-reg]');
+  if (!el) return;
+  const a = el.dataset.reg;
+  try {
+    if (a === 'restaurer') return restaurerDepuisFichier();
+    if (a === 'dossier') { await S.choisirDossier(); toast('Sauvegarde automatique activée.'); return route(); }
+    if (a === 'reautoriser') { await S.reautoriserDossier(); return route(); }
+    if (a === 'oublier-dossier') {
+      if (await confirmer({ titre: 'Arrêter la sauvegarde automatique ?', texte: 'Les fichiers déjà enregistrés dans le dossier restent en place.', bouton: 'Arrêter', danger: false })) { await S.oublierDossier(); route(); }
+      return;
+    }
+    if (a === 'verrouiller') { S.verrouiller(); return route(); }
+    if (a === 'copie') {
+      const c = S.copies()[Number(el.dataset.i)];
+      const ok = await confirmer({ titre: 'Restaurer cette copie ?', texte: `Tes données reviendront à leur état du ${new Date(c.le).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })} (${esc(c.raison.toLowerCase())}). Une copie de l'état actuel est faite avant.`, bouton: 'Restaurer', danger: false });
+      if (ok) { await S.restaurerCopie(Number(el.dataset.i)); toast('Copie restaurée.'); route(); }
+      return;
+    }
+    if (a === 'mdp') return fenetreMotDePasse();
+  } catch (e) {
+    if (e?.name !== 'AbortError') alerte(esc(e?.message || e));
+  }
+});
+
+function fenetreMotDePasse() {
+  ouvrir(`<h2>Changer le mot de passe</h2>
+    <label class="champ"><span>Mot de passe actuel</span><input name="a" type="password" autocomplete="current-password"></label>
+    <label class="champ"><span>Nouveau (8 caractères minimum)</span><input name="n" type="password" autocomplete="new-password"></label>
+    <label class="champ"><span>Confirmation</span><input name="n2" type="password" autocomplete="new-password"></label>
+    <p class="message-erreur" data-erreur hidden></p>
+    <div class="actions"><button class="btn btn-second" data-r="0">Annuler</button><button class="btn btn-principal" data-r="1">Changer</button></div>`, (f) => {
+    f.addEventListener('click', async (e) => {
+      const r = e.target.closest('[data-r]')?.dataset.r;
+      if (r === '0') return fermer();
+      if (r !== '1') return;
+      const err = f.querySelector('[data-erreur]');
+      const v = (n) => f.querySelector(`[name=${n}]`).value;
+      if (v('n').length < 8) { err.textContent = '8 caractères minimum.'; err.hidden = false; return; }
+      if (v('n') !== v('n2')) { err.textContent = 'Les deux nouveaux mots de passe diffèrent.'; err.hidden = false; return; }
+      if (!(await S.changerMotDePasse(v('a'), v('n')))) { err.textContent = 'Mot de passe actuel incorrect.'; err.hidden = false; return; }
+      fermer();
+      toast('Mot de passe changé. Pense à faire une nouvelle sauvegarde.');
+    });
+  });
+}
+
+// --- Message temporaire avec « Annuler » ----------------------------------------
+
+let minuterieToast = null;
+function toast(texte, annuler) {
+  document.querySelector('.toast')?.remove();
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.innerHTML = `<span>${esc(texte)}</span>${annuler ? '<button>Annuler</button>' : ''}`;
+  t.querySelector('button')?.addEventListener('click', async () => { t.remove(); await annuler(); });
+  document.body.append(t);
+  clearTimeout(minuterieToast);
+  minuterieToast = setTimeout(() => t.remove(), annuler ? 9000 : 4000);
+}
+
+// --- Mode correction d'un mois passé ---------------------------------------------
+
+async function demarrerCorrection(b, m) {
+  const ok = await confirmer({
+    titre: `Corriger ${nomMois(m)} ?`,
+    texte: 'Les opérations de ce mois, ses charges fixes et ses revenus deviennent modifiables. Les saisies des mois suivants ne sont jamais touchées ; seules les 🌰 qui en découlent seront recalculées. Une copie est faite avant, et tu verras l\'effet avant de valider.',
+    bouton: 'Commencer la correction',
+    danger: false,
+  });
+  if (!ok) return;
+  await S.commencerCorrection(b, m, `Avant correction de ${nomMois(m).toLowerCase()}`);
+  route();
+}
+
+function fenetreFinCorrection(b) {
+  const c = S.correctionEnCours();
+  const courant = S.moisCourant(b);
+  const avant = C.calculMois(c.avant, courant);
+  const apres = C.calculMois(b, courant);
+  const nbMois = b.mois.filter((x) => x > c.mois).length;
+  const diffs = apres.enveloppes.map((e) => {
+    const a = avant.enveloppes.find((x) => x.env.id === e.env.id);
+    return { env: e.env, d: e.direct - (a ? a.direct : 0) };
+  }).filter((x) => x.d !== 0);
+  const margeAvant = C.calculMois(c.avant, c.mois).margeReelle;
+  const margeApres = C.calculMois(b, c.mois).margeReelle;
+  const lignes = diffs.map((x) => `<li>${esc(x.env.icone)} ${esc(x.env.nom)} : 🌰 <b class="${x.d < 0 ? 'negatif' : ''}">${euros(x.d, { signe: true })}</b>${nbMois ? ` sur ${nbMois + 1} mois` : ''}</li>`).join('');
+  ouvrir(`<h2>Terminer la correction de ${nomMois(c.mois)}</h2>
+    ${lignes ? `<p>Effet sur les 🌰, jusqu'à ${nomMois(courant)} :</p><ul class="liste-simple">${lignes}</ul>` : '<p>Aucun effet sur les 🌰.</p>'}
+    ${margeAvant !== margeApres ? `<p>Marge réelle de ${nomMois(c.mois)} : ${euros(margeAvant)} → <b>${euros(margeApres)}</b>. Les versements de marge déjà faits ne sont pas modifiés.</p>` : ''}
+    <div class="actions"><button class="btn btn-danger" data-r="annuler">Annuler mes modifications</button><button class="btn btn-principal" data-r="valider">Valider</button></div>
+    <button class="btn btn-large lien" data-r="continuer" style="margin-top:6px">Continuer à corriger</button>`, (f) => {
+    f.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-r]')?.dataset.r;
+      if (!r) return;
+      if (r === 'continuer') return fermer();
+      S.terminerCorrection(r === 'valider');
+      fermer();
+      route();
+      toast(r === 'valider' ? 'Correction validée.' : 'Modifications annulées.');
+    });
+  });
+}
+
 // --- Actions -----------------------------------------------------------------------
 
 function baseCourante() {
@@ -662,13 +1036,18 @@ app.addEventListener('click', (ev) => {
   const { action, id, cible } = el.dataset;
   switch (action) {
     case 'nouvelle-base': return fenetreBase(null);
+    case 'reglages': return aller('#/reglages');
+    case 'sauvegarder': return sauvegarder();
+    case 'plus-tard': S.modifier((e) => { e.reglages.rappelApres = new Date(Date.now() + 864e5).toISOString(); }); return route();
+    case 'corriger': return demarrerCorrection(b, el.dataset.mois);
+    case 'fin-correction': return fenetreFinCorrection(b);
     case 'demo': { const d = S.creerDemo(); return aller(`#/b/${d.id}`); }
     case 'menu-base': return fenetreBase(b);
     case 'menu-mois': return fenetreMenu(b);
     case 'bascule': return fenetreBascule(b);
     case 'nouvelle-enveloppe': return fenetreEnveloppe(b, null);
     case 'modifier-enveloppe': return fenetreEnveloppe(b, id);
-    case 'nouvelle-op': return fenetreOperation(b, { cible });
+    case 'nouvelle-op': return fenetreOperation(b, { cible, mois: el.dataset.mois });
     case 'modifier-op': return fenetreOperation(b, { op: b.operations.find((o) => o.id === id) });
     case 'monter': S.deplacerEnveloppe(b, id, -1); return route();
     case 'descendre': S.deplacerEnveloppe(b, id, 1); return route();
