@@ -139,7 +139,9 @@ function horodatage(d = new Date()) {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export const nomSauvegarde = () => `envelop-sauvegarde-${horodatage()}.json`;
+// Extension .txt : Android n'accepte pas le partage de fichiers .json (« Permission denied »).
+// Le contenu reste le même fichier chiffré ; l'import accepte .txt et .json.
+export const nomSauvegarde = () => `envelop-sauvegarde-${horodatage()}.txt`;
 
 export async function texteSauvegarde() {
   const c = await K.chiffrer(cle, etat);
@@ -183,7 +185,9 @@ export async function restaurer(contenu, mode) {
 
 // --- Dossier de sauvegarde automatique (Chrome/Edge sur PC) ----------------------
 
-export const dossierPossible = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+// Réservé aux ordinateurs : sur téléphone, Android refuse l'écriture durable dans un dossier.
+const mobile = typeof navigator !== 'undefined' && (navigator.userAgentData?.mobile || /Android|iPhone|iPad/i.test(navigator.userAgent));
+export const dossierPossible = typeof window !== 'undefined' && 'showDirectoryPicker' in window && !mobile;
 
 function idb() {
   return new Promise((ok, ko) => {

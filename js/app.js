@@ -795,23 +795,31 @@ function rappelSauvegarde() {
 async function sauvegarder() {
   const texte = await S.texteSauvegarde();
   const nom = S.nomSauvegarde();
-  const fichier = new File([texte], nom, { type: 'application/json' });
+  const fichier = new File([texte], nom, { type: 'text/plain' });
+  const telecharger = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(fichier);
+    a.download = nom;
+    document.body.append(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  };
   try {
     if (navigator.canShare?.({ files: [fichier] })) {
-      await navigator.share({ files: [fichier], title: 'Sauvegarde Envelop' });
+      try {
+        await navigator.share({ files: [fichier], title: 'Sauvegarde Envelop' });
+      } catch (e) {
+        if (e?.name === 'AbortError') return; // partage fermé sans choisir
+        telecharger(); // partage refusé par le système : on télécharge à la place
+      }
     } else {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(fichier);
-      a.download = nom;
-      document.body.append(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      telecharger();
     }
     S.noterSauvegarde();
     toast('Sauvegarde créée. Elle est chiffrée avec ton mot de passe.');
     route();
   } catch (e) {
-    if (e?.name !== 'AbortError') alerte(`La sauvegarde n'a pas pu être faite : ${esc(e?.message || e)}`);
+    alerte(`La sauvegarde n'a pas pu être faite : ${esc(e?.message || e)}`);
   }
 }
 
@@ -819,7 +827,7 @@ function choisirFichier() {
   return new Promise((ok) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,application/json';
+    input.accept = '.txt,.json,text/plain,application/json';
     input.addEventListener('change', () => ok(input.files[0] || null));
     input.click();
   });
