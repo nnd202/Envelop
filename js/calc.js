@@ -1,6 +1,11 @@
 // Moteur de calcul d'Envelop.
 // Règle d'or : seules les saisies sont stockées ; tout chiffre affiché est recalculé ici.
 // Tous les montants sont en centimes (entiers) pour éviter les erreurs d'arrondi.
+//
+// Modèle (1er novembre 2026) :
+// - Stock = somme des noisettes 🌰 de toutes les enveloppes, Surplus compris.
+// - Le Surplus est une enveloppe automatique : son plafond = revenus − incompressibles − autres plafonds.
+// - Dépenses et entrées touchent le reste du mois ; virements et écarts constatés touchent la 🌰.
 
 // --- Mois au format "AAAA-MM" -------------------------------------------------
 
@@ -25,22 +30,15 @@ export function moisPrecedent(m) {
 
 // --- Lecture des saisies ------------------------------------------------------
 
-// Plafond en vigueur pour une enveloppe et un mois : la dernière valeur définie
-// à partir d'un mois antérieur ou égal. Jamais rétroactif.
-export function plafond(base, envId, m) {
-  let val = 0;
-  let depuis = '';
-  for (const p of base.plafonds) {
-    if (p.enveloppeId === envId && p.depuis <= m && p.depuis >= depuis) {
-      val = p.montant;
-      depuis = p.depuis;
-    }
-  }
-  return val;
-}
+const somme = (liste, f = (x) => x) => liste.reduce((t, x) => t + f(x), 0);
 
-// Une enveloppe existe dans un mois si elle a été créée avant (ou ce mois-là)
-// et n'a pas été supprimée avant (supprimeeDepuis = premier mois où elle disparaît).
+export const estSurplus = (env) => env?.special === 'surplus';
+export const surplusDe = (base) => base.enveloppes.find(estSurplus);
+
+// Opération qui déplace de la 🌰 (virement, écart constaté) plutôt qu'une dépense ou une entrée.
+// « epargne » : ancien format, traité comme un virement.
+export const estTransfert = (o) => !!(o.virement || o.ecart || o.reprise || o.epargne);
+
 export function enveloppeActive(env, m) {
   return env.creeeLe <= m && (!env.supprimeeDepuis || m < env.supprimeeDepuis);
 }
@@ -55,51 +53,77 @@ export function operationsDe(base, m, cible) {
   return base.operations.filter((o) => o.mois === m && o.cible === cible);
 }
 
-const somme = (liste, f = (x) => x) => liste.reduce((t, x) => t + f(x), 0);
+export function revenusDuMois(base, m) {
+  return somme(operationsDe(base, m, 'revenu').filter((o) => !o.pause), (o) => o.montant);
+}
+
+export function incompressibleDuMois(base, m) {
+  return somme(operationsDe(base, m, 'charge').filter((o) => !o.pause), (o) => o.montant);
+}
+
+// Plafond saisi d'une enveloppe ordinaire : la dernière valeur définie à partir d'un mois
+// antérieur ou égal. Jamais rétroactif.
+function plafondSaisi(base, envId, m) {
+  let val = 0;
+  let depuis = '';
+  for (const p of base.plafonds) {
+    if (p.enveloppeId === envId && p.depuis <= m && p.depuis >= depuis) {
+      val = p.montant;
+      depuis = p.depuis;
+    }
+  }
+  return val;
+}
+
+// Somme des plafonds des enveloppes ordinaires (hors Surplus), en option sans l'une d'elles.
+export function plafondsOrdinaires(base, m, sauf = null) {
+  return somme(enveloppesDuMois(base, m).filter((e) => !estSurplus(e) && e.id !== sauf), (e) => plafondSaisi(base, e.id, m));
+}
+
+// Plafond du Surplus : ce qui reste des revenus une fois les charges et les plafonds posés.
+export function plafondSurplus(base, m) {
+  return revenusDuMois(base, m) - incompressibleDuMois(base, m) - plafondsOrdinaires(base, m);
+}
+
+export function plafond(base, envId, m) {
+  const env = base.enveloppes.find((e) => e.id === envId);
+  return estSurplus(env) ? plafondSurplus(base, m) : plafondSaisi(base, envId, m);
+}
+
+// Plafond le plus haut possible pour une enveloppe sans faire passer le Surplus sous zéro.
+export function plafondMaximum(base, envId, m) {
+  return revenusDuMois(base, m) - incompressibleDuMois(base, m) - plafondsOrdinaires(base, m, envId);
+}
 
 // --- Calculs ------------------------------------------------------------------
 
-// Chiffres d'une enveloppe pour un mois donné, sans la noisette acquise.
 function chiffresEnveloppe(base, env, m) {
   const ops = operationsDe(base, m, env.id);
   const comptees = ops.filter((o) => !o.pause);
-  const courantes = comptees.filter((o) => !o.epargne);
-  const epargne = comptees.filter((o) => o.epargne);
+  const mouvements = somme(comptees.filter((o) => !estTransfert(o)), (o) => o.montant); // négatif = dépense
+  const transferts = somme(comptees.filter(estTransfert), (o) => o.montant);
   const pl = plafond(base, env.id, m);
-  const mouvements = somme(courantes, (o) => o.montant); // négatif = dépense
-  return {
-    plafond: pl,
-    consomme: -mouvements,
-    reste: pl + mouvements,
-    epargne: somme(epargne, (o) => o.montant),
-    ops,
-  };
+  return { plafond: pl, consomme: -mouvements, reste: pl + mouvements, transferts, ops };
 }
 
 // Noisette en fin de mois m (en direct si m est le mois en cours).
-// Récurrence sur les mois précédents de la base ; mise en cache par appel.
 export function noisette(base, env, m, cache = new Map()) {
   const cle = `${env.id}|${m}`;
   if (cache.has(cle)) return cache.get(cle);
-  const acquise = noisetteAcquise(base, env, m, cache);
   const c = chiffresEnveloppe(base, env, m);
-  const val = acquise + c.reste + c.epargne;
+  const val = noisetteAcquise(base, env, m, cache) + c.reste + c.transferts;
   cache.set(cle, val);
   return val;
 }
 
 // Noisette à la fin du mois précédent ; au premier mois de l'enveloppe, sa noisette de départ.
-// Une ancre (mois importé) impose la valeur lue dans l'ancien outil : les mois plus anciens
-// ajoutés ensuite servent à l'historique et ne modifient jamais les mois ancrés et suivants.
 export function noisetteAcquise(base, env, m, cache = new Map()) {
-  const ancre = base.ancres?.[m]?.[env.id];
-  if (ancre !== undefined) return ancre;
   const prec = moisPrecedent(m);
   if (env.creeeLe > prec || !base.mois.includes(prec)) return env.noisetteDepart || 0;
   return noisette(base, env, prec, cache);
 }
 
-// Nombre de mois consécutifs, jusqu'au mois m inclus, où la noisette est négative.
+// Nombre de mois consécutifs, jusqu'au mois m inclus, où la noisette finit négative.
 export function moisNegatifs(base, env, m, cache = new Map()) {
   let n = 0;
   let cur = m;
@@ -110,15 +134,24 @@ export function moisNegatifs(base, env, m, cache = new Map()) {
   return n;
 }
 
+// Solde jour par jour : départ = 🌰 acquise + plafond, puis chaque opération à sa date.
+// Renvoie le point le plus bas s'il est passé sous zéro, sinon null.
+export function pointBas(acquise, plafondMois, ops, m) {
+  let solde = acquise + plafondMois;
+  let bas = solde < 0 ? { valeur: solde, date: `${m}-01` } : null;
+  const tries = ops.filter((o) => !o.pause).map((o, i) => ({ o, i }))
+    .sort((a, b) => (a.o.date || '').localeCompare(b.o.date || '') || a.i - b.i);
+  for (const { o } of tries) {
+    solde += o.montant;
+    if (solde < 0 && (!bas || solde < bas.valeur)) bas = { valeur: solde, date: o.date };
+  }
+  return bas;
+}
+
 export function tendance(direct, acquise) {
   if (direct > acquise) return 'hausse';
   if (direct < acquise) return 'baisse';
   return 'stable';
-}
-
-// Réserve cumulée jusqu'au mois m inclus (versements de marge non affectés, étape 2).
-export function reserve(base, m) {
-  return somme((base.reserve || []).filter((r) => r.mois <= m), (r) => r.montant);
 }
 
 // Tout ce qu'affiche la vue d'un mois.
@@ -135,23 +168,21 @@ export function calculMois(base, m) {
       direct,
       tendance: tendance(direct, acquise),
       moisNegatifs: moisNegatifs(base, env, m, cache),
+      pointBas: pointBas(acquise, c.plafond, c.ops, m),
     };
   });
 
   const revenusOps = operationsDe(base, m, 'revenu');
   const chargesOps = operationsDe(base, m, 'charge');
-  const revenus = somme(revenusOps.filter((o) => !o.pause), (o) => o.montant);
-  const incompressible = somme(chargesOps.filter((o) => !o.pause), (o) => o.montant);
-  const plafonds = somme(enveloppes, (e) => e.plafond);
-  const consomme = somme(enveloppes, (e) => e.consomme);
-  const margePrevue = revenus - plafonds - incompressible;
-  const depassement = Math.max(0, consomme - plafonds);
-  const margeReelle = margePrevue - depassement;
-
-  const res = reserve(base, m);
-  const resAcquise = reserve(base, moisPrecedent(m));
-  const epargneGlobale = somme(enveloppes, (e) => e.direct) + res;
-  const epargneAcquise = somme(enveloppes, (e) => e.acquise) + resAcquise;
+  const revenus = revenusDuMois(base, m);
+  const incompressible = incompressibleDuMois(base, m);
+  const plafondsEnveloppes = plafondsOrdinaires(base, m);
+  const surplusPrevu = revenus - incompressible - plafondsEnveloppes;
+  const depenses = somme(enveloppes, (e) => e.consomme);
+  const resultat = revenus - incompressible - depenses;
+  const ecart = somme(base.operations.filter((o) => o.mois === m && o.ecart && !o.pause), (o) => o.montant);
+  const stockDebut = somme(enveloppes, (e) => e.acquise);
+  const stock = somme(enveloppes, (e) => e.direct);
 
   return {
     mois: m,
@@ -160,16 +191,15 @@ export function calculMois(base, m) {
     chargesOps,
     revenus,
     incompressible,
-    plafonds,
-    consomme,
-    margePrevue,
-    depassement,
-    margeReelle,
-    reserve: res,
-    reserveTendance: tendance(res, resAcquise),
-    epargneGlobale,
-    epargneAcquise,
-    epargneTendance: tendance(epargneGlobale, epargneAcquise),
+    plafondsEnveloppes,
+    surplusPrevu,
+    depenses,
+    resultat,
+    ecart,
+    stockDebut,
+    stock,
+    stockTendance: tendance(stock, stockDebut),
+    controle: base.controles?.[m] || null,
   };
 }
 
@@ -186,7 +216,7 @@ export function lireMontant(texte) {
 const fmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function formatMontant(centimes, { signe = false, euro = true } = {}) {
-  const s = fmt.format(centimes / 100);
-  const avecSigne = signe && centimes > 0 ? `+${s}` : s;
-  return euro ? `${avecSigne} €` : avecSigne;
+  const s = fmt.format(Math.abs(centimes) / 100);
+  const prefixe = centimes < 0 ? '− ' : signe && centimes > 0 ? '+ ' : '';
+  return `${prefixe}${s}${euro ? ' €' : ''}`;
 }

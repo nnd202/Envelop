@@ -15,35 +15,43 @@ const montant = (c) => (c / 100).toFixed(2).replace('.', ',');
 const oui = (b) => (b ? 'oui' : '');
 
 export function csvOperations(etat) {
-  const lignes = [ligne(['Base', 'Mois', 'Type', 'Enveloppe', 'Date', 'Libellé', 'Montant', 'En pause', 'Épargne', 'Récurrente'])];
+  const lignes = [ligne(['Base', 'Mois', 'Type', 'Enveloppe', 'Autre enveloppe', 'Date', 'Libellé', 'Montant', 'En pause', 'Récurrente'])];
   for (const b of etat.bases) {
     const noms = new Map(b.enveloppes.map((e) => [e.id, `${e.icone} ${e.nom}`]));
     const ops = [...b.operations].sort((x, y) => (x.mois + (x.date || '')).localeCompare(y.mois + (y.date || '')));
     for (const o of ops) {
-      const type = o.cible === 'charge' ? 'Charge fixe' : o.cible === 'revenu' ? 'Revenu' : 'Enveloppe';
-      lignes.push(ligne([b.nom, o.mois, type, noms.get(o.cible) || '', o.date || '', o.libelle || '', montant(o.montant), oui(o.pause), oui(o.epargne), oui(o.recurrente)]));
-    }
-    for (const r of b.reserve || []) {
-      lignes.push(ligne([b.nom, r.mois, 'Réserve', '', `${r.mois}-01`, `Marge ${r.origine || ''}`.trim(), montant(r.montant), '', 'oui', '']));
+      let type = o.montant < 0 ? 'Dépense' : 'Entrée';
+      if (o.cible === 'charge') type = 'Charge fixe';
+      else if (o.cible === 'revenu') type = 'Revenu';
+      else if (o.virement || o.epargne) type = 'Virement';
+      else if (o.ecart) type = 'Écart constaté';
+      else if (o.reprise) type = 'Reprise';
+      const autre = o.virement ? noms.get(o.montant < 0 ? o.vers : o.depuis) || '' : '';
+      lignes.push(ligne([b.nom, o.mois, type, noms.get(o.cible) || '', autre, o.date || '', o.libelle || '', montant(o.montant), oui(o.pause), oui(o.recurrente)]));
     }
   }
   return BOM + lignes.join('\r\n');
 }
 
 export function csvSynthese(etat) {
-  const lignes = [ligne(['Base', 'Mois', 'Enveloppe', 'Plafond', 'Dépensé', 'Reste', 'Noisette fin du mois précédent', 'Noisette fin du mois'])];
+  const lignes = [ligne(['Base', 'Mois', 'Ligne', 'Plafond', 'Dépensé', 'Reste', 'Noisette début du mois', 'Noisette fin du mois', 'Passée sous zéro'])];
   for (const b of etat.bases) {
     for (const m of b.mois) {
       const r = C.calculMois(b, m);
       for (const e of r.enveloppes) {
-        lignes.push(ligne([b.nom, m, `${e.env.icone} ${e.env.nom}`, montant(e.plafond), montant(e.consomme), montant(e.reste), montant(e.acquise), montant(e.direct)]));
+        lignes.push(ligne([b.nom, m, `${e.env.icone} ${e.env.nom}`, montant(e.plafond), montant(e.consomme), montant(e.reste), montant(e.acquise), montant(e.direct), e.pointBas ? `${e.pointBas.date} (${montant(e.pointBas.valeur)})` : '']));
       }
-      lignes.push(ligne([b.nom, m, 'Revenus', '', '', montant(r.revenus), '', '']));
-      lignes.push(ligne([b.nom, m, 'Incompressible', '', montant(r.incompressible), '', '', '']));
-      lignes.push(ligne([b.nom, m, 'Marge prévue', '', '', montant(r.margePrevue), '', '']));
-      lignes.push(ligne([b.nom, m, 'Marge réelle', '', '', montant(r.margeReelle), '', '']));
-      lignes.push(ligne([b.nom, m, 'Réserve', '', '', '', '', montant(r.reserve)]));
-      lignes.push(ligne([b.nom, m, 'Épargne globale', '', '', '', montant(r.epargneAcquise), montant(r.epargneGlobale)]));
+      const l = (nom, v) => lignes.push(ligne([b.nom, m, nom, '', '', montant(v), '', '', '']));
+      l('Revenus', r.revenus);
+      l('Incompressibles', r.incompressible);
+      l('Plafonds des enveloppes', r.plafondsEnveloppes);
+      l('Surplus prévu', r.surplusPrevu);
+      l('Dépenses', r.depenses);
+      l('Résultat', r.resultat);
+      l('Stock début du mois', r.stockDebut);
+      l('Écart constaté', r.ecart);
+      l('Stock fin du mois', r.stock);
+      if (r.controle) l('Stock réel déclaré', r.controle.reel);
     }
   }
   return BOM + lignes.join('\r\n');

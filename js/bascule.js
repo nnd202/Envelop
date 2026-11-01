@@ -1,5 +1,5 @@
-// Bascule de mois : création du mois suivant, report des récurrentes,
-// répartition obligatoire de la marge du mois qui s'achève.
+// Bascule de mois : bilan, contrôle avec le stock réel, report des récurrentes.
+// L'écart entre stock calculé et stock réel est inscrit dans le Surplus (« Écart constaté »).
 import * as C from './calc.js';
 
 const uid = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -11,9 +11,9 @@ function memeJour(date, mois) {
   return `${mois}-${String(Math.min(jour, dernier)).padStart(2, '0')}`;
 }
 
-function nomMois(m) {
-  const [a, n] = m.split('-').map(Number);
-  return new Date(a, n - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+function dernierJour(mois) {
+  const [a, n] = mois.split('-').map(Number);
+  return `${mois}-${String(new Date(a, n, 0).getDate()).padStart(2, '0')}`;
 }
 
 // Ce que la bascule va faire, pour l'afficher avant validation.
@@ -22,35 +22,30 @@ export function preparer(base) {
   const r = C.calculMois(base, m);
   const suivant = C.moisSuivant(m);
   const actives = new Set(C.enveloppesDuMois(base, suivant).map((e) => e.id));
-  const recurrentes = base.operations.filter((o) => o.mois === m && o.recurrente
+  const recurrentes = base.operations.filter((o) => o.mois === m && o.recurrente && !C.estTransfert(o)
     && (o.cible === 'charge' || o.cible === 'revenu' || actives.has(o.cible)));
-  return { mois: m, suivant, marge: Math.max(0, r.margeReelle), margeReelle: r.margeReelle, recurrentes, enveloppes: r.enveloppes.map((e) => e.env) };
+  return { mois: m, suivant, resultat: r.resultat, stockDebut: r.stockDebut, stockCalcule: r.stock, recurrentes };
 }
 
-// repartition : { [enveloppeId]: centimes }, reserve : centimes.
-// La somme doit être égale à la marge (positive) du mois qui s'achève.
-export function appliquer(base, { repartition = {}, reserve = 0 }) {
+// stockReel : centimes, ou null si l'utilisateur ne vérifie pas ce mois-ci.
+export function appliquer(base, { stockReel = null } = {}) {
   const p = preparer(base);
-  const total = Object.values(repartition).reduce((t, v) => t + v, 0) + reserve;
-  if (total !== p.marge) throw new Error(`Répartition incomplète : ${total} sur ${p.marge}`);
-  if (Object.values(repartition).some((v) => v < 0) || reserve < 0) throw new Error('Montant négatif');
-
   const marque = { bascule: p.suivant };
+  if (stockReel != null) {
+    const ecart = stockReel - p.stockCalcule;
+    base.controles = base.controles || {};
+    base.controles[p.mois] = { reel: stockReel, calcule: p.stockCalcule, ecart };
+    const surplus = C.surplusDe(base);
+    if (ecart && surplus) {
+      base.operations.push({
+        id: uid(), mois: p.mois, cible: surplus.id, date: dernierJour(p.mois), libelle: 'Écart constaté',
+        montant: ecart, ecart: true, pause: false, recurrente: false, ...marque,
+      });
+    }
+  }
   base.mois.push(p.suivant);
   for (const o of p.recurrentes) {
     base.operations.push({ ...o, id: uid(), mois: p.suivant, date: memeJour(o.date, p.suivant), ...marque });
-  }
-  const libelle = `Marge ${nomMois(p.mois)}`;
-  for (const [envId, montant] of Object.entries(repartition)) {
-    if (!montant) continue;
-    base.operations.push({
-      id: uid(), mois: p.suivant, cible: envId, date: `${p.suivant}-01`, libelle, montant,
-      epargne: true, pause: false, recurrente: false, marge: p.mois, ...marque,
-    });
-  }
-  if (reserve) {
-    base.reserve = base.reserve || [];
-    base.reserve.push({ mois: p.suivant, montant: reserve, origine: p.mois, ...marque });
   }
   return p.suivant;
 }
@@ -67,6 +62,7 @@ export function annulable(base) {
 export function annuler(base) {
   if (!annulable(base)) throw new Error('Bascule non annulable');
   const m = base.mois.pop();
-  base.operations = base.operations.filter((o) => o.mois !== m);
-  base.reserve = (base.reserve || []).filter((r) => r.mois !== m);
+  const prec = base.mois[base.mois.length - 1];
+  base.operations = base.operations.filter((o) => o.mois !== m && o.bascule !== m);
+  if (base.controles) delete base.controles[prec];
 }

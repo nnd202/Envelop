@@ -130,19 +130,20 @@ function vueMois(b, mois) {
   const calendrier = C.moisDe(new Date());
   const lienEnv = (id) => (passe ? `#/b/${b.id}/m/${m}/e/${id}` : `#/b/${b.id}/e/${id}`);
   const lienFixes = passe ? (corr ? `#/b/${b.id}/m/${m}/fixes` : 'javascript:void 0') : `#/b/${b.id}/fixes`;
-
   const reorg = reorganiser && !passe;
   const nbEnv = r.enveloppes.length;
+
   const enveloppes = r.enveloppes.map((e, i) => `
-    <${reorg ? 'div' : 'a'} class="ligne" ${reorg ? '' : `href="${lienEnv(e.env.id)}"`}>
+    <${reorg ? 'div' : 'a'} class="ligne${C.estSurplus(e.env) ? ' ligne-surplus' : ''}" ${reorg ? '' : `href="${lienEnv(e.env.id)}"`}>
       ${reorg ? `<div class="ordre"><button data-action="monter" data-id="${e.env.id}" ${i === 0 ? 'disabled' : ''} aria-label="Monter">▲</button><button data-action="descendre" data-id="${e.env.id}" ${i === nbEnv - 1 ? 'disabled' : ''} aria-label="Descendre">▼</button></div>` : ''}
       <span class="pastille">${esc(e.env.icone)}</span>
       <span class="ligne-corps">
-        <div class="ligne-nom">${esc(e.env.nom)}${e.env.flechee ? '<span class="point-fleche" title="Épargne fléchée"></span>' : ''}</div>
+        <div class="ligne-nom">${esc(e.env.nom)}${C.estSurplus(e.env) ? ' <span class="badge">auto</span>' : ''}${e.env.flechee ? '<span class="point-fleche" title="Épargne fléchée"></span>' : ''}</div>
         <div class="ligne-detail">
           <span class="reste${negClass(e.reste)}">${euros(e.reste)}</span>
           <span class="noisette${negClass(e.direct)}">🌰 ${euros(e.direct, { euro: false })} ${fleche(e.tendance)}</span>
           ${alerteNegative(e.moisNegatifs)}
+          ${e.pointBas && e.direct >= 0 ? `<span class="badge sous-zero">sous zéro le ${Number(e.pointBas.date.slice(8))}</span>` : ''}
           ${passe ? `<span>plafond ${euros(e.plafond)}</span>` : ''}
         </div>
       </span>
@@ -160,8 +161,12 @@ function vueMois(b, mois) {
     bandeau += `<div class="bandeau bandeau-action">${nomMois(calendrier)} a commencé.
       <button class="btn btn-principal" data-action="bascule">Basculer vers ${nomMois(C.moisSuivant(m))}</button></div>`;
   }
+  if (!passe && r.surplusPrevu < 0) {
+    bandeau += `<div class="bandeau bandeau-alerte">Tes charges et tes plafonds dépassent tes revenus de ${euros(-r.surplusPrevu)}. Baisse un plafond ou ajoute un revenu.</div>`;
+  }
 
-  const ecart = r.depassement > 0;
+  const ligneS = (libelle, valeur, { signe = '', classe = '' } = {}) => `<div class="synthese-ligne ${classe}"><span>${libelle}</span><span>${/^0,00/.test(valeur) ? '' : signe}${valeur}</span></div>`;
+  const controlePrec = b.controles?.[C.moisPrecedent(m)];
   app.innerHTML = `
     <header class="entete">
       <a class="btn-icone" href="#/" aria-label="Mes budgets">${ICONES.bases}</a>
@@ -171,14 +176,14 @@ function vueMois(b, mois) {
     ${bandeau}
     <section class="carte">
       <h2 class="carte-titre titre-action">Enveloppes${passe || nbEnv < 2 ? '' : `<button class="mini" data-action="reorganiser">${reorg ? 'Terminé' : 'Réorganiser'}</button>`}</h2>
-      <div class="liste">${enveloppes || '<div class="vide">Aucune enveloppe. Ajoute la première ci-dessous.</div>'}
+      <div class="liste">${enveloppes}
       ${passe ? '' : `<button class="ajouter" data-action="nouvelle-enveloppe">${ICONES.plus} Ajouter une enveloppe</button>`}</div>
     </section>
 
     <section class="carte">
       <div class="liste">
         <a class="ligne" href="${lienFixes}"><span class="pastille">🔒</span>
-          <span class="ligne-corps"><div class="ligne-nom">Incompressible</div><div class="ligne-detail">${r.chargesOps.length} charge${r.chargesOps.length > 1 ? 's' : ''} fixe${r.chargesOps.length > 1 ? 's' : ''}</div></span>
+          <span class="ligne-corps"><div class="ligne-nom">Incompressibles</div><div class="ligne-detail">${r.chargesOps.length} charge${r.chargesOps.length > 1 ? 's' : ''} fixe${r.chargesOps.length > 1 ? 's' : ''}</div></span>
           <span class="ligne-montant">${euros(r.incompressible)}</span><span class="chevron">${ICONES.chevron}</span></a>
         <a class="ligne" href="${lienFixes}"><span class="pastille">💶</span>
           <span class="ligne-corps"><div class="ligne-nom">Revenus</div><div class="ligne-detail">${r.revenusOps.length} entrée${r.revenusOps.length > 1 ? 's' : ''}</div></span>
@@ -189,17 +194,22 @@ function vueMois(b, mois) {
     <section class="carte">
       <h2 class="carte-titre">Synthèse du mois</h2>
       <div class="synthese">
-        <div class="marges">
-          <div class="marge"><small>Marge prévue</small><strong class="${negClass(r.margePrevue)}">${euros(r.margePrevue)}</strong></div>
-          <div class="marge ${ecart ? 'ecart' : 'reelle'}"><small>Marge réelle</small><strong class="${negClass(r.margeReelle)}">${euros(r.margeReelle)}</strong>${ecart ? `<em>dépassement ${euros(r.depassement)}</em>` : ''}</div>
-        </div>
-        <div class="synthese-ligne"><span>Revenus</span><span>${euros(r.revenus)}</span></div>
-        <div class="synthese-ligne"><span>Plafonds des enveloppes</span><span>− ${euros(r.plafonds)}</span></div>
-        <div class="synthese-ligne"><span>Incompressible</span><span>− ${euros(r.incompressible)}</span></div>
-        <div class="synthese-ligne"><span>Dépensé dans les enveloppes</span><span>${euros(r.consomme)}</span></div>
-        ${r.reserve ? `<div class="synthese-ligne"><span>Réserve</span><span class="noisette">${euros(r.reserve)} ${fleche(r.reserveTendance)}</span></div>` : ''}
-        <div class="synthese-ligne forte"><span>🌰 Épargne globale</span><span class="noisette${negClass(r.epargneGlobale)}">${euros(r.epargneGlobale)} ${fleche(r.epargneTendance)}</span></div>
-        <div class="synthese-ligne"><span>Fin du mois précédent</span><span>${euros(r.epargneAcquise)}</span></div>
+        <h3 class="bloc-titre">Prévisionnel</h3>
+        ${ligneS('Revenus', euros(r.revenus))}
+        ${ligneS('Incompressibles', euros(r.incompressible), { signe: '− ' })}
+        ${ligneS('Enveloppes', euros(r.plafondsEnveloppes), { signe: '− ' })}
+        ${ligneS('🫙 Surplus', `<b class="${negClass(r.surplusPrevu)}">${euros(r.surplusPrevu)}</b>`, { classe: 'forte' })}
+        <h3 class="bloc-titre">Réel</h3>
+        ${ligneS('Revenus', euros(r.revenus))}
+        ${ligneS('Incompressibles', euros(r.incompressible), { signe: '− ' })}
+        ${ligneS('Dépenses', euros(r.depenses), { signe: '− ' })}
+        ${ligneS('Résultat', `<b class="${negClass(r.resultat)}">${euros(r.resultat, { signe: true })}</b>`, { classe: 'forte' })}
+        <h3 class="bloc-titre">Stock</h3>
+        ${ligneS('Début du mois', euros(r.stockDebut))}
+        ${ligneS('Résultat', euros(r.resultat, { signe: true }))}
+        ${r.ecart ? ligneS('Écart constaté', euros(r.ecart, { signe: true })) : ''}
+        ${ligneS(passe ? '🌰 Fin du mois' : '🌰 En direct', `<span class="noisette${negClass(r.stock)}">${euros(r.stock)} ${fleche(r.stockTendance)}</span>`, { classe: 'forte' })}
+        ${controlePrec ? `<p class="aide" style="margin:6px 0 0">Contrôle de ${nomMois(C.moisPrecedent(m)).toLowerCase()} : ${controlePrec.ecart ? `écart de ${euros(controlePrec.ecart, { signe: true })}` : 'aucun écart'}.</p>` : ''}
       </div>
     </section>
     ${barre(b, passe ? '' : 'mois')}`;
@@ -212,10 +222,11 @@ function vueHistorique(b) {
   const lignes = [...b.mois].reverse().map((m) => {
     const r = C.calculMois(b, m);
     const enCours = m === courant;
+    const ctrl = r.controle;
     return `<a class="ligne" href="${enCours ? `#/b/${b.id}` : `#/b/${b.id}/m/${m}`}">
       <span class="pastille" style="font-size:1rem">${enCours ? '●' : '○'}</span>
       <span class="ligne-corps"><div class="ligne-nom">${nomMois(m)} ${enCours ? '<span class="badge recurrente">En cours</span>' : '<span class="badge">Lecture seule</span>'}</div>
-      <div class="ligne-detail">${r.enveloppes.length} enveloppes · marge réelle ${euros(r.margeReelle)} · 🌰 ${euros(r.epargneGlobale)}</div></span>
+      <div class="ligne-detail"><span>résultat ${euros(r.resultat, { signe: true })}</span><span>🌰 ${euros(r.stock)}</span>${ctrl ? `<span>${ctrl.ecart ? `écart ${euros(ctrl.ecart, { signe: true })}` : 'contrôlé ✓'}</span>` : ''}</div></span>
       <span class="chevron">${ICONES.chevron}</span></a>`;
   }).join('');
   app.innerHTML = `
@@ -224,12 +235,40 @@ function vueHistorique(b) {
       <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}</span>Historique</h1>
     </header>
     <button class="btn btn-principal btn-large" data-action="bascule" style="margin-bottom:14px">Basculer vers ${nomMois(C.moisSuivant(courant))}</button>
-
     <section class="carte"><div class="liste">${lignes}</div></section>
     ${barre(b, '')}`;
 }
 
 // --- Vue : détail d'une enveloppe -------------------------------------------------
+
+function nomEnveloppe(b, id) {
+  const e = b.enveloppes.find((x) => x.id === id);
+  return e ? `${e.icone} ${e.nom}` : '?';
+}
+
+function ligneOperation(b, o, modifiable) {
+  let titre = o.libelle || jourCourt(o.date);
+  let detail = o.libelle ? jourCourt(o.date) : '';
+  let classe = o.montant >= 0 ? 'montant-plus' : 'montant-moins';
+  if (o.virement) {
+    const autre = o.montant < 0 ? `→ ${nomEnveloppe(b, o.vers)}` : `← ${nomEnveloppe(b, o.depuis)}`;
+    titre = `Virement ${autre}`;
+    detail = [jourCourt(o.date), o.libelle].filter(Boolean).join(' · ');
+    classe += ' montant-virement';
+  } else if (o.ecart) {
+    titre = 'Écart constaté';
+    detail = `${jourCourt(o.date)} · contrôle du stock`;
+  } else if (o.reprise) {
+    detail = `${jourCourt(o.date)} · enveloppe supprimée`;
+  }
+  const badges = `${o.pause ? '<span class="badge pause">En pause</span>' : ''}${o.recurrente ? '<span class="badge recurrente">Récurrente</span>' : ''}`;
+  const balise = modifiable && !o.ecart && !o.reprise ? 'button' : 'div';
+  return `<${balise} class="ligne${o.pause ? ' en-pause' : ''}" ${balise === 'button' ? `data-action="modifier-op" data-id="${o.id}"` : ''}>
+      <span class="ligne-corps"><div class="ligne-nom">${esc(titre)}</div>
+        <div class="ligne-detail">${detail ? `<span>${esc(detail)}</span>` : ''}${badges}</div></span>
+      <span class="ligne-montant ${classe}">${euros(o.montant, { signe: true })}</span>
+    </${balise}>`;
+}
 
 function vueEnveloppe(b, envId, mois) {
   const m = mois || S.moisCourant(b);
@@ -238,39 +277,31 @@ function vueEnveloppe(b, envId, mois) {
   const r = C.calculMois(b, m);
   const e = r.enveloppes.find((x) => x.env.id === envId);
   if (!e) return aller(passe ? `#/b/${b.id}/m/${m}` : `#/b/${b.id}`);
+  const surplus = C.estSurplus(e.env);
   const ops = [...e.ops].sort((x, y) => (x.date || '').localeCompare(y.date || ''));
-  const lignes = ops.map((o) => `
-    <${lecture ? 'div' : 'button'} class="ligne${o.pause ? ' en-pause' : ''}" ${lecture ? '' : `data-action="modifier-op" data-id="${o.id}"`}>
-      <span class="ligne-corps">
-        <div class="ligne-nom">${esc(o.libelle || jourCourt(o.date))}</div>
-        <div class="ligne-detail">${o.libelle ? `<span>${jourCourt(o.date)}</span>` : ''}
-          ${o.pause ? '<span class="badge pause">En pause</span>' : ''}
-          ${o.epargne ? '<span class="badge epargne">🌰 Épargne</span>' : ''}
-          ${o.recurrente ? '<span class="badge recurrente">Récurrente</span>' : ''}</div>
-      </span>
-      <span class="ligne-montant" style="color:${o.montant > 0 ? 'var(--hausse)' : 'inherit'}">${euros(o.montant, { signe: true })}</span>
-    </${lecture ? 'div' : 'button'}>`).join('');
-
+  const bas = e.pointBas;
   app.innerHTML = `
     <header class="entete">
       <a class="btn-icone" href="${passe ? `#/b/${b.id}/m/${m}` : `#/b/${b.id}`}" aria-label="Retour au mois">${ICONES.retour}</a>
       <h1><span class="sur-titre">${nomMois(m)}${lecture ? ' · lecture seule' : passe ? ' · correction' : ''}</span>&nbsp;</h1>
-      ${passe ? '' : `<button class="btn-icone" data-action="modifier-enveloppe" data-id="${e.env.id}" aria-label="Modifier l'enveloppe">${ICONES.points}</button>`}
+      ${passe || surplus ? '' : `<button class="btn-icone" data-action="modifier-enveloppe" data-id="${e.env.id}" aria-label="Modifier l'enveloppe">${ICONES.points}</button>`}
     </header>
     <section class="carte heros">
       <span class="pastille">${esc(e.env.icone)}</span>
       <h2>${esc(e.env.nom)}</h2>
       <div class="grand${negClass(e.reste)}">${euros(e.reste)}</div>
-      <div class="sous">reste ${passe ? 'en fin de mois' : 'ce mois-ci'} sur ${euros(e.plafond)} de plafond</div>
+      <div class="sous">reste ${passe ? 'en fin de mois' : 'ce mois-ci'} sur ${euros(e.plafond)} de plafond${surplus ? ' (calculé)' : ''}</div>
       <div class="heros-chiffres">
-        <div>🌰 fin du mois dernier<b>${euros(e.acquise)}</b></div>
-        <div>🌰 ${passe ? 'fin de ce mois' : 'en direct'}<b class="noisette${negClass(e.direct)}">${euros(e.direct)} ${fleche(e.tendance)}</b></div>
+        <div>🌰 début du mois<b>${euros(e.acquise)}</b></div>
+        <div>🌰 ${passe ? 'fin du mois' : 'en direct'}<b class="noisette${negClass(e.direct)}">${euros(e.direct)} ${fleche(e.tendance)}</b></div>
       </div>
+      ${bas ? `<div class="sous-zero-info">Passée sous zéro le ${Number(bas.date.slice(8))} (${euros(bas.valeur)})${e.direct >= 0 ? ', renflouée depuis' : ''}.</div>` : ''}
       ${e.moisNegatifs >= 2 ? `<div style="margin-top:10px">${alerteNegative(e.moisNegatifs)}</div>` : ''}
+      ${surplus ? '<p class="aide" style="margin:12px 0 0">Plafond = revenus − incompressibles − plafonds des autres enveloppes. Vire depuis le Surplus pour renflouer ou alimenter une enveloppe.</p>' : ''}
     </section>
     <section class="carte">
       <h2 class="carte-titre">Opérations</h2>
-      <div class="liste">${lignes || '<div class="vide">Aucune opération ce mois-ci.</div>'}
+      <div class="liste">${ops.map((o) => ligneOperation(b, o, !lecture)).join('') || '<div class="vide">Aucune opération ce mois-ci.</div>'}
       ${lecture ? '' : `<button class="ajouter" data-action="nouvelle-op" data-cible="${e.env.id}" data-mois="${m}">${ICONES.plus} Ajouter une opération</button>`}</div>
     </section>
     ${barre(b, '')}`;
@@ -309,14 +340,12 @@ function vueFixes(b, mois) {
 
 function vuePlafonds(b) {
   const m = S.moisCourant(b);
-  const envs = C.enveloppesDuMois(b, m);
+  const envs = C.enveloppesDuMois(b, m).filter((e) => !C.estSurplus(e));
+  const revenus = C.revenusDuMois(b, m);
+  const fixes = C.incompressibleDuMois(b, m);
   const total = envs.reduce((t, e) => t + C.plafond(b, e.id, m), 0);
-  const lignes = envs.map((e, i) => `
+  const lignes = envs.map((e) => `
     <div class="plafond-ligne">
-      <div class="ordre">
-        <button data-action="monter" data-id="${e.id}" ${i === 0 ? 'disabled' : ''} aria-label="Monter">▲</button>
-        <button data-action="descendre" data-id="${e.id}" ${i === envs.length - 1 ? 'disabled' : ''} aria-label="Descendre">▼</button>
-      </div>
       <span class="pastille" style="width:36px;height:36px;font-size:1.1rem;border-radius:12px">${esc(e.icone)}</span>
       <span class="ligne-nom">${esc(e.nom)}</span>
       <input inputmode="decimal" data-plafond="${e.id}" value="${enCentimesTexte(C.plafond(b, e.id, m))}" placeholder="0,00" aria-label="Plafond de ${esc(e.nom)}">
@@ -325,9 +354,15 @@ function vuePlafonds(b) {
     <header class="entete"><h1><span class="sur-titre">${nomMois(m)}</span>Plafonds</h1></header>
     <section class="carte">
       ${lignes || '<div class="vide">Aucune enveloppe.</div>'}
-      <div class="synthese"><div class="synthese-ligne forte"><span>Total des plafonds</span><span id="total-plafonds">${euros(total)}</span></div></div>
+      <div class="synthese" data-revenus="${revenus}" data-fixes="${fixes}">
+        <div class="synthese-ligne"><span>Revenus</span><span>${euros(revenus)}</span></div>
+        <div class="synthese-ligne"><span>Incompressibles</span><span>− ${euros(fixes)}</span></div>
+        <div class="synthese-ligne"><span>Enveloppes</span><span id="total-plafonds">− ${euros(total)}</span></div>
+        <div class="synthese-ligne forte"><span>🫙 Surplus</span><span id="surplus-plafonds" class="${negClass(revenus - fixes - total)}">${euros(revenus - fixes - total)}</span></div>
+      </div>
+      <p class="message-erreur" id="erreur-plafonds" style="padding:0 18px" hidden></p>
     </section>
-    <p class="aide sur-fond" style="text-align:center">Un plafond modifié vaut pour ${nomMois(m)} et les mois suivants, jamais pour les mois passés.</p>
+    <p class="aide sur-fond" style="text-align:center">Un plafond modifié vaut pour ${nomMois(m)} et les mois suivants, jamais pour les mois passés. Le Surplus reçoit ce qui n'est pas réparti ; il ne peut pas passer sous zéro.</p>
     ${envs.length ? '<button class="btn btn-principal btn-large" data-action="enregistrer-plafonds">Enregistrer les plafonds</button>' : ''}
     ${barre(b, 'plafonds')}`;
 }
@@ -396,59 +431,88 @@ function fenetreOperation(b, { cible, op, mois }) {
   const m = op?.mois || mois || S.moisCourant(b);
   const envs = C.enveloppesDuMois(b, m);
   const existante = !!op;
-  cible = op?.cible || cible || envs[0]?.id;
+  cible = op?.cible || cible || envs.find((e) => !C.estSurplus(e))?.id || envs[0]?.id;
   if (!cible) return alerte('Ajoute d\'abord une enveloppe.');
   const estFixe = cible === 'charge' || cible === 'revenu';
   const aujourdHui = new Date().toISOString().slice(0, 10);
   const dateDefaut = aujourdHui.startsWith(m) ? aujourdHui : `${m}-01`;
+  const surplusId = C.surplusDe(b)?.id;
+  // Pour un virement existant : enveloppe de départ et d'arrivée.
+  let depuis = cible;
+  let vers = null;
+  if (op?.virement) {
+    depuis = op.montant < 0 ? op.cible : op.depuis;
+    vers = op.montant < 0 ? op.vers : op.cible;
+  }
   const etat = {
-    positif: op ? op.montant > 0 && !estFixe : false,
+    type: op?.virement ? 'virement' : op && op.montant > 0 && !estFixe ? 'entree' : 'depense',
     recurrente: op ? op.recurrente : estFixe,
     pause: op ? op.pause : false,
-    epargne: op ? op.epargne : false,
   };
   const [an, mo] = m.split('-').map(Number);
   const dernier = new Date(an, mo, 0).getDate();
   const titre = existante ? 'Modifier' : cible === 'charge' ? 'Nouvelle charge fixe' : cible === 'revenu' ? 'Nouveau revenu' : 'Nouvelle opération';
+  const options = (sel, sauf) => envs.filter((e) => e.id !== sauf).map((e) => `<option value="${e.id}" ${e.id === sel ? 'selected' : ''}>${esc(e.icone)} ${esc(e.nom)}</option>`).join('');
+  const versDefaut = vers || (depuis === surplusId ? envs.find((e) => e.id !== surplusId)?.id : surplusId);
 
   ouvrir(`
     <h2>${titre}</h2>
-    ${!estFixe && !existante ? `<label class="champ"><span>Enveloppe</span><select name="cible">${envs.map((e) => `<option value="${e.id}" ${e.id === cible ? 'selected' : ''}>${esc(e.icone)} ${esc(e.nom)}</option>`).join('')}</select></label>` : ''}
+    ${estFixe ? '' : `<div class="types" role="radiogroup">
+      <button type="button" class="type${etat.type === 'depense' ? ' on' : ''}" data-type="depense" ${op?.virement ? 'disabled' : ''}>− Dépense</button>
+      <button type="button" class="type${etat.type === 'entree' ? ' on' : ''}" data-type="entree" ${op?.virement ? 'disabled' : ''}>+ Entrée</button>
+      <button type="button" class="type${etat.type === 'virement' ? ' on' : ''}" data-type="virement" ${existante && !op?.virement ? 'disabled' : ''}>⇄ Virement</button>
+    </div>`}
+    ${estFixe ? '' : `<label class="champ"><span data-libelle-env>${etat.type === 'virement' ? 'Depuis l\'enveloppe' : 'Enveloppe'}</span><select name="cible" ${existante && !op?.virement ? 'disabled' : ''}>${options(depuis)}</select></label>`}
+    ${estFixe ? '' : `<label class="champ" data-champ-vers ${etat.type === 'virement' ? '' : 'hidden'}><span>Vers l'enveloppe</span><select name="vers">${options(versDefaut, depuis)}</select></label>`}
     <label class="champ" data-champ="montant"><span>Montant</span>
       <div class="montant-ligne">
-        ${estFixe ? '' : `<button type="button" class="signe${etat.positif ? ' positif' : ''}" data-signe aria-label="Changer le signe">${etat.positif ? '+' : '−'}</button>`}
+        ${estFixe ? '' : `<span class="signe ${etat.type === 'entree' ? 'positif' : etat.type === 'virement' ? 'virement' : ''}" data-signe>${etat.type === 'entree' ? '+' : etat.type === 'virement' ? '⇄' : '−'}</span>`}
         <input name="montant" inputmode="decimal" placeholder="0,00" value="${op ? enCentimesTexte(Math.abs(op.montant)) : ''}" autocomplete="off">
       </div></label>
     <label class="champ"><span>Libellé ${estFixe ? '' : '(facultatif)'}</span><input name="libelle" value="${esc(op?.libelle || '')}" placeholder="${estFixe ? (cible === 'charge' ? 'Loyer, assurance…' : 'Salaire…') : 'Carrefour, plein…'}" autocomplete="off"></label>
     ${estFixe ? '' : `<label class="champ"><span>Date</span><input name="date" type="date" min="${m}-01" max="${m}-${String(dernier).padStart(2, '0')}" value="${op?.date || dateDefaut}"></label>`}
-    <div class="puces">
-      ${estFixe ? '' : puce('positif', '+ Positif', etat.positif)}
+    <div class="puces" data-puces ${etat.type === 'virement' ? 'hidden' : ''}>
       ${puce('recurrente', '↻ Récurrente', etat.recurrente)}
       ${puce('pause', 'Ⅱ En pause', etat.pause)}
-      ${estFixe ? '' : puce('epargne', '🌰 Épargne', etat.epargne)}
     </div>
     <p class="aide" data-aide></p>
     <div class="actions">
       ${existante ? '<button class="btn btn-danger" data-action-f="supprimer">Supprimer</button>' : '<button class="btn btn-second" data-action-f="annuler">Annuler</button>'}
       <button class="btn btn-principal" data-action-f="enregistrer">Enregistrer</button>
     </div>`, (f) => {
-    const signe = f.querySelector('[data-signe]');
     const aide = f.querySelector('[data-aide]');
+    const selCible = f.querySelector('[name=cible]');
+    const selVers = f.querySelector('[name=vers]');
     const majAide = () => {
       const t = [];
-      if (etat.pause) t.push('En pause : visible, mais exclue des calculs.');
-      if (etat.epargne) t.push('Épargne : va directement dans la 🌰, sans toucher au reste du mois.');
-      if (etat.recurrente) t.push('Récurrente : reportée au mois suivant.');
+      if (etat.type === 'virement') t.push('Le virement déplace de la 🌰 d\'une enveloppe à l\'autre : ni dépense ni entrée, le stock ne change pas.');
+      if (etat.type !== 'virement' && etat.pause) t.push('En pause : visible, mais exclue des calculs.');
+      if (etat.type !== 'virement' && etat.recurrente) t.push('Récurrente : reportée au mois suivant.');
       aide.textContent = t.join(' ');
     };
-    const majSigne = () => {
-      if (!signe) return;
-      signe.textContent = etat.positif ? '+' : '−';
-      signe.classList.toggle('positif', etat.positif);
-      f.querySelector('[data-puce="positif"]').classList.toggle('on', etat.positif);
+    const majVers = () => {
+      if (!selVers) return;
+      const garde = selVers.value;
+      const src = selCible.value;
+      selVers.innerHTML = options(garde !== src ? garde : (src === surplusId ? envs.find((e) => e.id !== surplusId)?.id : surplusId), src);
     };
-    signe?.addEventListener('click', () => { etat.positif = !etat.positif; majSigne(); });
-    basculerPuces(f, etat, (k) => { if (k === 'positif') majSigne(); majAide(); });
+    const majType = () => {
+      f.querySelectorAll('[data-type]').forEach((x) => x.classList.toggle('on', x.dataset.type === etat.type));
+      const signe = f.querySelector('[data-signe]');
+      if (signe) {
+        signe.textContent = { depense: '−', entree: '+', virement: '⇄' }[etat.type];
+        signe.className = `signe ${etat.type === 'entree' ? 'positif' : etat.type === 'virement' ? 'virement' : ''}`;
+      }
+      const v = etat.type === 'virement';
+      f.querySelector('[data-champ-vers]')?.toggleAttribute('hidden', !v);
+      f.querySelector('[data-puces]').toggleAttribute('hidden', v);
+      const lib = f.querySelector('[data-libelle-env]');
+      if (lib) lib.textContent = v ? 'Depuis l\'enveloppe' : 'Enveloppe';
+      majAide();
+    };
+    f.querySelectorAll('[data-type]').forEach((x) => x.addEventListener('click', () => { etat.type = x.dataset.type; majType(); }));
+    selCible?.addEventListener('change', majVers);
+    basculerPuces(f, etat, majAide);
     majAide();
     if (!existante) setTimeout(() => f.querySelector('[name=montant]').focus(), 60);
 
@@ -456,7 +520,8 @@ function fenetreOperation(b, { cible, op, mois }) {
       const a = ev.target.closest('[data-action-f]')?.dataset.actionF;
       if (a === 'annuler') return fermer();
       if (a === 'supprimer') {
-        if (await confirmer({ titre: 'Supprimer cette opération ?', texte: 'Elle disparaîtra de ce mois et les calculs seront mis à jour.', bouton: 'Supprimer' })) {
+        const texte = op.virement ? 'Les deux côtés du virement seront supprimés.' : 'Elle disparaîtra de ce mois et les calculs seront mis à jour.';
+        if (await confirmer({ titre: op.virement ? 'Supprimer ce virement ?' : 'Supprimer cette opération ?', texte, bouton: 'Supprimer' })) {
           S.supprimerOperation(b, op.id);
           route();
         }
@@ -467,18 +532,19 @@ function fenetreOperation(b, { cible, op, mois }) {
       const champ = f.querySelector('[data-champ=montant]');
       if (brut == null || brut === 0) { champ.classList.add('erreur'); return; }
       const libelle = f.querySelector('[name=libelle]').value.trim();
-      const montant = estFixe ? Math.abs(brut) : (etat.positif ? 1 : -1) * Math.abs(brut);
-      S.enregistrerOperation(b, {
-        id: op?.id,
-        mois: m,
-        cible: f.querySelector('[name=cible]')?.value || cible,
-        date: f.querySelector('[name=date]')?.value || op?.date || `${m}-01`,
-        libelle,
-        montant,
-        recurrente: !!etat.recurrente,
-        pause: !!etat.pause,
-        epargne: !estFixe && !!etat.epargne,
-      });
+      const date = f.querySelector('[name=date]')?.value || op?.date || `${m}-01`;
+      if (etat.type === 'virement' && !estFixe) {
+        const src = selCible.value;
+        const dst = selVers.value;
+        if (!dst || dst === src) return;
+        S.enregistrerVirement(b, { groupe: op?.virement, depuis: src, vers: dst, montant: Math.abs(brut), date, mois: m, libelle });
+      } else {
+        const montant = estFixe ? Math.abs(brut) : (etat.type === 'entree' ? 1 : -1) * Math.abs(brut);
+        S.enregistrerOperation(b, {
+          id: op?.id, mois: m, cible: selCible?.value || cible, date, libelle, montant,
+          recurrente: !!etat.recurrente, pause: !!etat.pause,
+        });
+      }
       fermer();
       route();
     });
@@ -488,33 +554,38 @@ function fenetreOperation(b, { cible, op, mois }) {
 function fenetreEnveloppe(b, envId) {
   const m = S.moisCourant(b);
   const env = envId ? b.enveloppes.find((e) => e.id === envId) : null;
+  if (env && C.estSurplus(env)) return;
   const etat = { flechee: env ? !!env.flechee : false };
   const nouvelle = !env;
-  const departModifiable = nouvelle || env.creeeLe === b.mois[0];
+  const max = C.plafondMaximum(b, null, m);
+  const surplusActuel = C.calculMois(b, m).enveloppes.find((e) => C.estSurplus(e.env))?.direct ?? 0;
   ouvrir(`
     <h2>${nouvelle ? 'Nouvelle enveloppe' : 'Modifier l\'enveloppe'}</h2>
     <div class="deux">
       <label class="champ"><span>Icône</span><input name="icone" value="${esc(env?.icone || '')}" placeholder="🛒" maxlength="4" style="text-align:center;font-size:1.4rem;padding:9px 6px"></label>
       <label class="champ" data-champ="nom"><span>Nom</span><input name="nom" value="${esc(env?.nom || '')}" placeholder="Courses" autocomplete="off"></label>
     </div>
-    ${nouvelle ? '<label class="champ"><span>Plafond mensuel</span><input name="plafond" inputmode="decimal" placeholder="0,00"></label>' : ''}
-    ${departModifiable ? `<label class="champ"><span>🌰 de départ (épargne déjà accumulée)</span><input name="depart" inputmode="decimal" placeholder="0,00" value="${env ? enCentimesTexte(env.noisetteDepart) : ''}"></label>
-      <p class="aide">Mets un signe moins si l'enveloppe part en négatif.</p>` : ''}
+    ${nouvelle ? `<label class="champ" data-champ="plafond"><span>Plafond mensuel (maximum ${euros(Math.max(0, max))})</span><input name="plafond" inputmode="decimal" placeholder="0,00"></label>
+      <label class="champ"><span>🌰 de départ, prise sur le Surplus (${euros(surplusActuel)} disponibles)</span><input name="depart" inputmode="decimal" placeholder="0,00"></label>
+      <p class="aide">Par exemple l'argent déjà mis de côté pour la voiture. Le stock ne change pas : la somme passe du Surplus à cette enveloppe.</p>` : ''}
     <div class="puces">${puce('flechee', '● Épargne fléchée', etat.flechee)}</div>
     <p class="aide">Repère visuel pour une épargne à ne pas toucher (réparations, projet…).</p>
+    <p class="message-erreur" data-erreur hidden></p>
     <div class="actions">
       ${nouvelle ? '<button class="btn btn-second" data-action-f="annuler">Annuler</button>' : '<button class="btn btn-danger" data-action-f="supprimer">Supprimer</button>'}
       <button class="btn btn-principal" data-action-f="enregistrer">Enregistrer</button>
     </div>`, (f) => {
     basculerPuces(f, etat);
+    const erreur = f.querySelector('[data-erreur]');
     if (nouvelle) setTimeout(() => f.querySelector('[name=nom]').focus(), 60);
     f.addEventListener('click', async (ev) => {
       const a = ev.target.closest('[data-action-f]')?.dataset.actionF;
       if (a === 'annuler') return fermer();
       if (a === 'supprimer') {
+        const reste = C.noisetteAcquise(b, env, m);
         const ok = await confirmer({
           titre: `Supprimer « ${esc(env.nom)} » ?`,
-          texte: `Elle disparaîtra de ${nomMois(m)} et des mois suivants, avec ses opérations de ce mois-ci. Les mois passés la gardent.`,
+          texte: `Elle disparaîtra de ${nomMois(m)} et des mois suivants, avec ses opérations de ce mois-ci. Les mois passés la gardent.${reste ? ` Sa 🌰 de fin du mois dernier (${euros(reste)}) revient au Surplus.` : ''}`,
           bouton: 'Supprimer',
         });
         if (ok) { S.supprimerEnveloppe(b, env.id); aller(`#/b/${b.id}`); }
@@ -524,15 +595,18 @@ function fenetreEnveloppe(b, envId) {
       const nom = f.querySelector('[name=nom]').value.trim();
       if (!nom) { f.querySelector('[data-champ=nom]').classList.add('erreur'); return; }
       const icone = f.querySelector('[name=icone]').value.trim() || '✉️';
-      const departTxt = f.querySelector('[name=depart]')?.value;
-      const depart = departTxt ? C.lireMontant(departTxt) ?? 0 : 0;
       if (nouvelle) {
-        const plafond = Math.abs(C.lireMontant(f.querySelector('[name=plafond]').value) ?? 0);
-        S.creerEnveloppe(b, { nom, icone, plafond, noisetteDepart: depart, flechee: etat.flechee });
+        const plafond = Math.abs(C.lireMontant(f.querySelector('[name=plafond]').value || '0') ?? 0);
+        if (plafond > Math.max(0, max)) {
+          f.querySelector('[data-champ=plafond]').classList.add('erreur');
+          erreur.textContent = max > 0 ? `Le plafond ne peut pas dépasser ${euros(max)} : au-delà, tes plafonds dépasseraient tes revenus.` : 'Tes revenus sont déjà entièrement répartis. Ajoute tes revenus dans Fixes, ou baisse un autre plafond.';
+          erreur.hidden = false;
+          return;
+        }
+        const depart = Math.abs(C.lireMontant(f.querySelector('[name=depart]').value || '0') ?? 0);
+        S.creerEnveloppe(b, { nom, icone, plafond, depart, flechee: etat.flechee });
       } else {
-        const champs = { nom, icone, flechee: etat.flechee };
-        if (departModifiable) champs.noisetteDepart = depart;
-        S.modifierEnveloppe(b, env.id, champs);
+        S.modifierEnveloppe(b, env.id, { nom, icone, flechee: etat.flechee });
       }
       fermer();
       route();
@@ -549,7 +623,9 @@ function fenetreBase(b) {
       <label class="champ"><span>Icône</span><input name="icone" value="${esc(b?.icone || '')}" placeholder="💶" maxlength="4" style="text-align:center;font-size:1.4rem;padding:9px 6px"></label>
       <label class="champ" data-champ="nom"><span>Nom</span><input name="nom" value="${esc(b?.nom || '')}" placeholder="Perso, Couple…" autocomplete="off"></label>
     </div>
-    ${nouvelle ? `<label class="champ"><span>Premier mois</span><input name="mois" type="month" value="${m}"></label>` : ''}
+    ${nouvelle ? `<label class="champ"><span>Premier mois</span><input name="mois" type="month" value="${m}"></label>
+      <label class="champ" data-champ="stock"><span>Combien as-tu en tout ? (tous comptes confondus)</span><input name="stock" inputmode="decimal" placeholder="0,00"></label>
+      <p class="aide">C'est ton stock de départ. Il commence dans l'enveloppe Surplus ; tu en donneras une part à tes enveloppes en les créant.</p>` : ''}
     <div class="actions">
       ${nouvelle ? '<button class="btn btn-second" data-action-f="annuler">Annuler</button>' : '<button class="btn btn-danger" data-action-f="supprimer">Supprimer</button>'}
       <button class="btn btn-principal" data-action-f="enregistrer">Enregistrer</button>
@@ -560,7 +636,7 @@ function fenetreBase(b) {
       if (a === 'supprimer') {
         const ok = await confirmer({
           titre: `Supprimer la base « ${esc(b.nom)} » ?`,
-          texte: 'Tous ses mois, enveloppes et opérations seront effacés de cet appareil. Cette action est définitive.',
+          texte: 'Tous ses mois, enveloppes et opérations seront effacés de cet appareil. Une copie est faite avant.',
           bouton: 'Supprimer définitivement',
         });
         if (ok) { await S.prendreCopie(`Avant suppression de la base ${b.nom}`); S.supprimerBase(b.id); aller('#/'); }
@@ -571,7 +647,9 @@ function fenetreBase(b) {
       if (!nom) { f.querySelector('[data-champ=nom]').classList.add('erreur'); return; }
       const icone = f.querySelector('[name=icone]').value.trim() || '💶';
       if (nouvelle) {
-        const nb = S.creerBase({ nom, icone, mois: f.querySelector('[name=mois]').value || m });
+        const stock = C.lireMontant(f.querySelector('[name=stock]').value || '0');
+        if (stock == null) { f.querySelector('[data-champ=stock]').classList.add('erreur'); return; }
+        const nb = S.creerBase({ nom, icone, mois: f.querySelector('[name=mois]').value || m, stock });
         fermer();
         aller(`#/b/${nb.id}`);
       } else {
@@ -590,7 +668,7 @@ function fenetreMenu(b) {
     <h2>${esc(b.icone)} ${esc(b.nom)}</h2>
     <div class="liste menu">
       <button class="ligne" data-m="historique"><span class="ligne-corps"><div class="ligne-nom">Historique des mois</div><div class="ligne-detail">${b.mois.length} mois</div></span><span class="chevron">${ICONES.chevron}</span></button>
-      <button class="ligne" data-m="bascule"><span class="ligne-corps"><div class="ligne-nom">Basculer vers ${nomMois(C.moisSuivant(courant))}</div><div class="ligne-detail">Clôture ${nomMois(courant)} et répartit sa marge</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      <button class="ligne" data-m="bascule"><span class="ligne-corps"><div class="ligne-nom">Basculer vers ${nomMois(C.moisSuivant(courant))}</div><div class="ligne-detail">Clôture ${nomMois(courant).toLowerCase()} et vérifie ton stock</div></span><span class="chevron">${ICONES.chevron}</span></button>
       ${annulable ? `<button class="ligne" data-m="annuler"><span class="ligne-corps"><div class="ligne-nom">Annuler la bascule vers ${nomMois(courant)}</div><div class="ligne-detail">Possible tant que rien n'a été saisi dans ce mois</div></span></button>` : ''}
       <button class="ligne" data-m="base"><span class="ligne-corps"><div class="ligne-nom">Modifier ou supprimer la base</div></span><span class="chevron">${ICONES.chevron}</span></button>
     </div>`, (f) => {
@@ -613,73 +691,73 @@ function fenetreMenu(b) {
 
 function fenetreBascule(b) {
   const p = BA.preparer(b);
-  const etat = { reserve: 0, rep: {} };
-  const lignes = p.enveloppes.map((e) => `
-    <div class="plafond-ligne">
-      <span class="pastille" style="width:34px;height:34px;font-size:1rem;border-radius:11px">${esc(e.icone)}</span>
-      <span class="ligne-nom">${esc(e.nom)}</span>
-      <input inputmode="decimal" data-rep="${e.id}" placeholder="0,00" aria-label="Part pour ${esc(e.nom)}">
-    </div>`).join('');
   const nbRec = p.recurrentes.length;
   ouvrir(`
     <h2>Basculer vers ${nomMois(p.suivant)}</h2>
-    <p>${nomMois(p.mois)} passera en lecture seule. ${nbRec} opération${nbRec > 1 ? 's' : ''} récurrente${nbRec > 1 ? 's' : ''} ${nbRec > 1 ? 'seront reportées' : 'sera reportée'}, et les dépenses repartent de zéro.</p>
-    ${p.marge > 0 ? `
-      <div class="marge" style="margin-bottom:12px"><small>Marge réelle de ${nomMois(p.mois)} à répartir</small><strong>${euros(p.marge)}</strong></div>
-      <p class="aide" style="margin:0 0 10px">Chaque part versée à une enveloppe est inscrite au 1er ${nomMois(p.suivant).toLowerCase()} comme une opération 🌰 Épargne : elle remonte sa 🌰 sans toucher au reste du mois. La Réserve compte dans l'épargne globale.</p>
-      <div class="carte" style="box-shadow:none;border:1.5px solid var(--ligne)">
-        <div class="plafond-ligne"><span class="pastille" style="width:34px;height:34px;font-size:1rem;border-radius:11px">🏦</span><span class="ligne-nom">Réserve</span><input inputmode="decimal" data-reserve placeholder="0,00" aria-label="Part pour la Réserve"></div>
-        ${lignes}
-      </div>
-      <div class="synthese-ligne forte"><span>Reste à répartir</span><span data-reste>${euros(p.marge)}</span></div>
-      <button class="btn btn-second btn-large" data-b="tout-reserve" style="margin-top:8px">Tout le reste en Réserve</button>`
-    : `<div class="bandeau" style="border:1.5px solid var(--ligne)">Pas de marge à répartir : la marge réelle de ${nomMois(p.mois)} est de ${euros(p.margeReelle)}.</div>`}
+    <div class="synthese" style="padding:0">
+      <div class="synthese-ligne"><span>Stock au début de ${nomMois(p.mois).toLowerCase()}</span><span>${euros(p.stockDebut)}</span></div>
+      <div class="synthese-ligne"><span>Résultat du mois</span><span class="${negClass(p.resultat)}">${euros(p.resultat, { signe: true })}</span></div>
+      <div class="synthese-ligne forte"><span>Stock calculé</span><span>${euros(p.stockCalcule)}</span></div>
+    </div>
+    <label class="champ" data-champ="reel" style="margin-top:16px"><span>Combien as-tu réellement aujourd'hui, tous comptes confondus ?</span><input name="reel" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+    <label class="coche"><input type="checkbox" name="passer"> Je ne vérifie pas ce mois-ci</label>
+    <div class="verdict" data-verdict hidden></div>
+    <p class="aide">${nomMois(p.mois)} passera en lecture seule. ${nbRec} opération${nbRec > 1 ? 's' : ''} récurrente${nbRec > 1 ? 's' : ''} ${nbRec > 1 ? 'seront reportées' : 'sera reportée'}, et chaque enveloppe garde sa 🌰.</p>
     <div class="actions">
       <button class="btn btn-second" data-b="annuler">Annuler</button>
-      <button class="btn btn-principal" data-b="valider" ${p.marge > 0 ? 'disabled' : ''}>Basculer</button>
+      <button class="btn btn-principal" data-b="valider" disabled>Basculer</button>
     </div>`, (f) => {
     const valider = f.querySelector('[data-b=valider]');
-    const lire = () => {
-      let total = 0;
-      let ok = true;
-      etat.rep = {};
-      f.querySelectorAll('[data-rep]').forEach((i) => {
-        const v = i.value.trim() === '' ? 0 : C.lireMontant(i.value);
-        if (v == null || v < 0) { ok = false; i.style.borderColor = 'var(--baisse)'; return; }
-        i.style.borderColor = '';
-        if (v) etat.rep[i.dataset.rep] = v;
-        total += v;
-      });
-      const ri = f.querySelector('[data-reserve]');
-      if (ri) {
-        const v = ri.value.trim() === '' ? 0 : C.lireMontant(ri.value);
-        if (v == null || v < 0) { ok = false; ri.style.borderColor = 'var(--baisse)'; } else { ri.style.borderColor = ''; etat.reserve = v; total += v; }
-      }
-      const reste = p.marge - total;
-      const r = f.querySelector('[data-reste]');
-      if (r) { r.textContent = euros(reste); r.classList.toggle('negatif', reste !== 0); }
-      valider.disabled = !ok || reste !== 0;
-      return reste;
-    };
-    f.addEventListener('input', lire);
-    f.addEventListener('click', async (ev) => {
-      const a = ev.target.closest('[data-b]')?.dataset.b;
-      if (a === 'annuler') return fermer();
-      if (a === 'tout-reserve') {
-        const ri = f.querySelector('[data-reserve]');
-        const reste = lire();
-        const actuel = ri.value.trim() === '' ? 0 : (C.lireMontant(ri.value) ?? 0);
-        ri.value = enCentimesTexte(Math.max(0, actuel + reste));
-        lire();
+    const annuler = f.querySelector('[data-b=annuler]');
+    const verdict = f.querySelector('[data-verdict]');
+    const reel = f.querySelector('[name=reel]');
+    const passer = f.querySelector('[name=passer]');
+    let stockReel = null;
+    const maj = () => {
+      reel.disabled = passer.checked;
+      if (passer.checked) {
+        stockReel = null;
+        verdict.hidden = true;
+        valider.disabled = false;
+        valider.textContent = 'Basculer';
+        annuler.textContent = 'Annuler';
         return;
       }
+      const v = reel.value.trim() === '' ? null : C.lireMontant(reel.value);
+      stockReel = v;
+      valider.disabled = v == null;
+      if (v == null) { verdict.hidden = true; return; }
+      const ecart = v - p.stockCalcule;
+      verdict.hidden = false;
+      if (ecart === 0) {
+        verdict.className = 'verdict ok';
+        verdict.innerHTML = '<b>Parfait.</b> Tes saisies reflètent exactement la réalité de tes comptes.';
+        valider.textContent = 'Basculer';
+        annuler.textContent = 'Annuler';
+      } else if (ecart > 0) {
+        verdict.className = 'verdict plus';
+        verdict.innerHTML = `<b>Tu as ${euros(ecart)} de plus que prévu.</b> Plutôt bon signe, mais quelque chose t'échappe : un revenu ou un remboursement non saisi ? Si tu bascules quand même, l'écart sera inscrit dans le Surplus.`;
+        valider.textContent = 'Basculer quand même';
+        annuler.textContent = 'Corriger d\'abord';
+      } else {
+        verdict.className = 'verdict moins';
+        verdict.innerHTML = `<b>Il manque ${euros(-ecart)}.</b> Une dépense n'a sans doute pas été saisie. Si elle revient chaque mois, ajoute-la aux charges fixes ; si elle est ponctuelle, ajoute-la comme opération du mois. Si tu bascules quand même, l'écart sera inscrit dans le Surplus.`;
+        valider.textContent = 'Basculer quand même';
+        annuler.textContent = 'Corriger d\'abord';
+      }
+    };
+    reel.addEventListener('input', maj);
+    passer.addEventListener('change', maj);
+    setTimeout(() => reel.focus(), 60);
+    f.addEventListener('click', (ev) => {
+      const a = ev.target.closest('[data-b]')?.dataset.b;
+      if (a === 'annuler') return fermer();
       if (a !== 'valider' || valider.disabled) return;
-      if (p.marge > 0 && lire() !== 0) return;
-      const suivant = S.basculer(b, { repartition: etat.rep, reserve: p.marge > 0 ? etat.reserve : 0 });
+      S.basculer(b, { stockReel: passer.checked ? null : stockReel });
       fermer();
       aller(`#/b/${b.id}`);
       route();
-      void suivant;
+      toast(`Bienvenue en ${nomMois(p.suivant).toLowerCase()} !`);
     });
   });
 }
@@ -1043,12 +1121,12 @@ function fenetreFinCorrection(b) {
     const a = avant.enveloppes.find((x) => x.env.id === e.env.id);
     return { env: e.env, d: e.direct - (a ? a.direct : 0) };
   }).filter((x) => x.d !== 0);
-  const margeAvant = C.calculMois(c.avant, c.mois).margeReelle;
-  const margeApres = C.calculMois(b, c.mois).margeReelle;
+  const resAvant = C.calculMois(c.avant, c.mois).resultat;
+  const resApres = C.calculMois(b, c.mois).resultat;
   const lignes = diffs.map((x) => `<li>${esc(x.env.icone)} ${esc(x.env.nom)} : 🌰 <b class="${x.d < 0 ? 'negatif' : ''}">${euros(x.d, { signe: true })}</b>${nbMois ? ` sur ${nbMois + 1} mois` : ''}</li>`).join('');
   ouvrir(`<h2>Terminer la correction de ${nomMois(c.mois)}</h2>
     ${lignes ? `<p>Effet sur les 🌰, jusqu'à ${nomMois(courant)} :</p><ul class="liste-simple">${lignes}</ul>` : '<p>Aucun effet sur les 🌰.</p>'}
-    ${margeAvant !== margeApres ? `<p>Marge réelle de ${nomMois(c.mois)} : ${euros(margeAvant)} → <b>${euros(margeApres)}</b>. Les versements de marge déjà faits ne sont pas modifiés.</p>` : ''}
+    ${resAvant !== resApres ? `<p>Résultat de ${nomMois(c.mois)} : ${euros(resAvant, { signe: true })} → <b>${euros(resApres, { signe: true })}</b>.</p>` : ''}
     <div class="actions"><button class="btn btn-danger" data-r="annuler">Annuler mes modifications</button><button class="btn btn-principal" data-r="valider">Valider</button></div>
     <button class="btn btn-large lien" data-r="continuer" style="margin-top:6px">Continuer à corriger</button>`, (f) => {
     f.addEventListener('click', (e) => {
@@ -1095,12 +1173,22 @@ app.addEventListener('click', (ev) => {
     case 'descendre': S.deplacerEnveloppe(b, id, 1); return route();
     case 'enregistrer-plafonds': {
       let erreur = false;
+      let total = 0;
       app.querySelectorAll('[data-plafond]').forEach((input) => {
         const v = input.value.trim() === '' ? 0 : C.lireMontant(input.value);
         input.style.borderColor = v == null ? 'var(--baisse)' : '';
         if (v == null) erreur = true;
+        else total += Math.abs(v);
       });
       if (erreur) return;
+      const mc = S.moisCourant(b);
+      const surplus = C.revenusDuMois(b, mc) - C.incompressibleDuMois(b, mc) - total;
+      if (surplus < 0) {
+        const msg = document.getElementById('erreur-plafonds');
+        msg.textContent = `Ces plafonds dépassent tes revenus de ${euros(-surplus)}. Baisse-en un, ou ajoute un revenu dans Fixes.`;
+        msg.hidden = false;
+        return;
+      }
       app.querySelectorAll('[data-plafond]').forEach((input) => {
         const v = Math.abs(input.value.trim() === '' ? 0 : C.lireMontant(input.value));
         if (v !== C.plafond(b, input.dataset.plafond, S.moisCourant(b))) S.definirPlafond(b, input.dataset.plafond, v);
@@ -1116,7 +1204,15 @@ app.addEventListener('input', (ev) => {
   let total = 0;
   app.querySelectorAll('[data-plafond]').forEach((i) => { total += Math.abs(C.lireMontant(i.value) ?? 0); });
   const t = document.getElementById('total-plafonds');
-  if (t) t.textContent = euros(total);
+  if (t) t.textContent = `− ${euros(total)}`;
+  const bloc = app.querySelector('[data-revenus]');
+  const sp = document.getElementById('surplus-plafonds');
+  if (bloc && sp) {
+    const v = Number(bloc.dataset.revenus) - Number(bloc.dataset.fixes) - total;
+    sp.textContent = euros(v);
+    sp.classList.toggle('negatif', v < 0);
+  }
+  document.getElementById('erreur-plafonds')?.setAttribute('hidden', '');
 });
 
 // --- Démarrage ---------------------------------------------------------------------

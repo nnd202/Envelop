@@ -6,11 +6,12 @@ Web app personnelle de budget par enveloppes : on saisit les dépenses, l'appli 
 
 ## Principe
 
-- Une **base** contient des **mois** ; chaque mois a ses **enveloppes** (Courses, Carburant…), ses **charges fixes** et ses **revenus**.
-- Chaque enveloppe a un **plafond** mensuel. Le **reste** du mois = plafond − dépenses. Ce qui n'est pas dépensé s'ajoute à la **noisette** 🌰 de l'enveloppe, son épargne cumulée (qui peut être négative).
-- **Marge prévue** = revenus − plafonds − charges fixes. **Marge réelle** = marge prévue − dépassement global des enveloppes.
-- Une opération peut être **récurrente**, **en pause** (visible mais hors calculs) ou **épargne** (va directement dans la 🌰).
-- Un plafond modifié vaut pour le mois en cours et les suivants, jamais pour le passé.
+- Une **base** démarre avec un **stock** : tout l'argent disponible, tous comptes confondus.
+- Chaque mois a ses **revenus**, ses **charges fixes** (incompressibles) et ses **enveloppes** (Courses, Voiture…), chacune avec un **plafond**.
+- L'enveloppe automatique **Surplus** reçoit ce qui n'est pas réparti : son plafond = revenus − incompressibles − autres plafonds. Les plafonds ne peuvent pas dépasser les revenus.
+- Chaque enveloppe garde sa **noisette** 🌰 (son argent mis de côté, positif ou négatif). **Stock = somme des 🌰 de toutes les enveloppes.**
+- Opérations : **dépense** ou **entrée** (touchent le reste du mois), **virement** entre enveloppes (déplace de la 🌰, le stock ne change pas). Une enveloppe passée sous zéro dans le mois le signale.
+- **Bascule de mois** : bilan, puis « combien as-tu réellement ? » ; l'écart éventuel avec le stock calculé est inscrit dans le Surplus et suivi dans les statistiques.
 
 ## Données
 
@@ -29,7 +30,7 @@ JavaScript simple, sans framework ni compilation.
 
 ## Avancement
 
-1. ✅ Cœur : bases, enveloppes, plafonds, opérations, charges fixes, revenus, synthèse.
-2. ✅ Bascule de mois : report des récurrentes, répartition obligatoire de la marge (enveloppes et Réserve), mois passés en lecture seule, historique, annulation de la dernière bascule.
+1. ✅ Cœur : stock de départ, enveloppes et Surplus automatique, plafonds bloqués par les revenus, dépenses, entrées et virements, synthèse prévisionnel / réel / stock.
+2. ✅ Bascule de mois : contrôle du stock réel, écart inscrit dans le Surplus, report des récurrentes, mois passés en lecture seule, historique, annulation de la dernière bascule.
 3. ✅ Chiffrement par mot de passe (PBKDF2 + AES-GCM), verrouillage auto, sauvegarde chiffrée (partage ou dossier sur PC), rappel, restauration, copies automatiques, mode correction des mois passés.
 4. ✅ Statistiques par base et par enveloppe, graphiques ; export lisible CSV ; lecteur de sauvegarde autonome (`lecteur.html`).

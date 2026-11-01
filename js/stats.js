@@ -18,20 +18,18 @@ const CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 
 // --- Calculs -------------------------------------------------------------------------
 
-export function statsEnveloppe(b, env) {
+export function statsEnveloppe(b, env, calculs = new Map()) {
   const mois = b.mois.filter((m) => C.enveloppeActive(env, m));
-  const cache = new Map();
   const parMois = mois.map((m) => {
-    const ops = C.operationsDe(b, m, env.id);
-    const courantes = ops.filter((o) => !o.epargne);
-    const versements = ops.filter((o) => o.epargne && !o.pause && (o.marge || /^Marge /.test(o.libelle || '')));
-    const plafond = C.plafond(b, env.id, m);
-    const consomme = -courantes.filter((o) => !o.pause).reduce((t, o) => t + o.montant, 0);
-    return { m, plafond, consomme, nbOps: courantes.length, versements, noisette: C.noisette(b, env, m, cache) };
+    if (!calculs.has(m)) calculs.set(m, C.calculMois(b, m));
+    const e = calculs.get(m).enveloppes.find((x) => x.env.id === env.id);
+    const courantes = e.ops.filter((o) => !C.estTransfert(o));
+    const recus = e.ops.filter((o) => o.virement && !o.pause && o.montant > 0);
+    return { m, plafond: e.plafond, consomme: e.consomme, nbOps: courantes.length, recus, noisette: e.direct, pointBas: e.pointBas };
   });
   const depassements = parMois.filter((x) => x.consomme > x.plafond);
   const maxOps = parMois.reduce((best, x) => (x.nbOps > (best?.nbOps ?? -1) ? x : best), null);
-  const versements = parMois.flatMap((x) => x.versements.map((o) => o.montant));
+  const recus = parMois.flatMap((x) => x.recus.map((o) => o.montant));
   const plafonds = [];
   for (const x of parMois) if (!plafonds.length || plafonds[plafonds.length - 1].montant !== x.plafond) plafonds.push({ m: x.m, montant: x.plafond });
   return {
@@ -41,12 +39,12 @@ export function statsEnveloppe(b, env) {
     depenseMoyenne: moyenne(parMois.map((x) => x.consomme)),
     nbDepassements: depassements.length,
     depassementMoyen: moyenne(depassements.map((x) => x.consomme - x.plafond)),
+    nbSousZero: parMois.filter((x) => x.pointBas).length,
     opsMoyenne: parMois.length ? parMois.reduce((t, x) => t + x.nbOps, 0) / parMois.length : 0,
     maxOps,
-    nbVersements: versements.length,
-    versementMoyen: moyenne(versements),
+    nbVirementsRecus: recus.length,
+    virementMoyen: moyenne(recus),
     plafonds,
-    moisNegatifs: mois.length ? C.moisNegatifs(b, env, mois[mois.length - 1], cache) : 0,
   };
 }
 
@@ -54,17 +52,32 @@ export function statsEnveloppe(b, env) {
 // Une série par graphique, un seul axe, marques fines ; toucher une marque affiche sa valeur.
 
 const L = 340;
-const H = 150;
-const M = { g: 8, d: 8, h: 14, b: 22 };
+const H = 160;
+const M = { g: 46, d: 8, h: 12, b: 22 };
+
+// Pas « ronds » (1, 2 ou 5 × 10ⁿ) pour 3 à 5 graduations : 3 400 € → 0, 1 000, 2 000, 3 000, 4 000.
+export function graduations(min, max) {
+  const brut = (max - min) / 4 || 1;
+  const puissance = 10 ** Math.floor(Math.log10(brut));
+  const pas = Math.max(100, [1, 2, 5, 10].map((k) => k * puissance).find((p) => p >= brut));
+  const bas = Math.floor(min / pas) * pas;
+  const haut = Math.ceil(max / pas) * pas;
+  const ticks = [];
+  for (let v = bas; v <= haut + pas / 2; v += pas) ticks.push(Math.round(v));
+  return { bas, haut, ticks };
+}
+
+const etiquetteEuro = (c) => {
+  const e = Math.round(c / 100);
+  return `${e < 0 ? '−' : ''}${Math.abs(e).toLocaleString('fr-FR')}`;
+};
 
 function echelle(valeurs) {
-  let min = Math.min(0, ...valeurs);
-  let max = Math.max(0, ...valeurs);
-  if (min === max) max = min + 100;
-  const pad = (max - min) * 0.08;
-  if (min < 0) min -= pad;
-  max += pad;
-  return (v) => M.h + (H - M.h - M.b) * (1 - (v - min) / (max - min));
+  const { bas, haut, ticks } = graduations(Math.min(0, ...valeurs), Math.max(0, ...valeurs, Math.min(0, ...valeurs) < 0 ? 0 : 10000));
+  const y = (v) => M.h + (H - M.h - M.b) * (1 - (v - bas) / (haut - bas));
+  const grille = ticks.map((t) => `<line x1="${M.g}" x2="${L - M.d}" y1="${y(t)}" y2="${y(t)}" class="${t === 0 ? 'zero' : 'grille'}"/>
+    <text x="${M.g - 6}" y="${y(t) + 3.5}" text-anchor="end" class="axe">${etiquetteEuro(t)}</text>`).join('');
+  return { y, grille };
 }
 
 function etiquettesX(points, x) {
@@ -82,21 +95,20 @@ function cadre(contenu, titre, legende = '') {
 
 export function graphLigne(points, titre) {
   if (!points.length) return '';
-  const y = echelle(points.map((p) => p.v));
+  const { y, grille } = echelle(points.map((p) => p.v));
   const n = points.length;
-  const x = (i) => (n === 1 ? L / 2 : M.g + 6 + (i * (L - M.g - M.d - 12)) / (n - 1));
+  const x = (i) => (n === 1 ? (M.g + L - M.d) / 2 : M.g + 10 + (i * (L - M.g - M.d - 20)) / (n - 1));
   const chemin = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
-  const zero = `<line x1="${M.g}" x2="${L - M.d}" y1="${y(0)}" y2="${y(0)}" class="zero"/>`;
   const pts = points.map((p, i) => `<g class="cible" data-tip="${esc(nomMois(p.m))} : ${esc(euros(p.v))}">
       <rect x="${x(i) - 14}" y="${M.h}" width="28" height="${H - M.h - M.b}" fill="transparent"/>
       <circle cx="${x(i)}" cy="${y(p.v)}" r="4" class="${p.v < 0 ? 'point neg' : 'point'}"/></g>`).join('');
-  return cadre(`${zero}<path d="${chemin}" class="trait"/>${pts}${etiquettesX(points, x)}`, titre);
+  return cadre(`${grille}<path d="${chemin}" class="trait"/>${pts}${etiquettesX(points, x)}`, titre);
 }
 
 // Barres de dépense, plafond en pointillés ; une barre au-dessus du plafond est marquée « dépassement ».
 export function graphBarres(points, titre, { reference = false, signe = false } = {}) {
   if (!points.length) return '';
-  const y = echelle(points.flatMap((p) => [p.v, p.ref ?? 0]));
+  const { y, grille } = echelle(points.flatMap((p) => [p.v, p.ref ?? 0]));
   const n = points.length;
   const pas = (L - M.g - M.d) / n;
   const larg = Math.min(26, pas * 0.62);
@@ -118,8 +130,8 @@ export function graphBarres(points, titre, { reference = false, signe = false } 
   if (reference) {
     ref = points.map((p, i) => (p.ref == null ? '' : `<line x1="${x(i) - pas / 2 + 2}" x2="${x(i) + pas / 2 - 2}" y1="${y(p.ref)}" y2="${y(p.ref)}" class="plafond-trait"/>`)).join('');
   }
-  const legende = reference ? '<div class="legende"><span><i class="cle baton-cle"></i>Dépensé</span><span><i class="cle plafond-cle"></i>Plafond</span><span><i class="cle depasse-cle"></i>Dépassement</span></div>' : '';
-  return cadre(`<line x1="${M.g}" x2="${L - M.d}" y1="${y0}" y2="${y0}" class="zero"/>${barres}${ref}${etiquettesX(points, x)}`, titre, legende);
+  const legende = reference ? `<div class="legende"><span><i class="cle baton-cle"></i>Dépensé</span><span><i class="cle plafond-cle"></i>${reference === true ? 'Plafond' : reference}</span><span><i class="cle depasse-cle"></i>Dépassement</span></div>` : '';
+  return cadre(`${grille}${barres}${ref}${etiquettesX(points, x)}`, titre, legende);
 }
 
 // Toucher ou survoler une marque affiche sa valeur sous le graphique.
@@ -146,10 +158,10 @@ function tuile(libelle, valeur, detail = '') {
 
 export function vueStats(app, b, barre) {
   const courant = b.mois[b.mois.length - 1];
-  const parMois = b.mois.map((m) => ({ m, r: C.calculMois(b, m) }));
-  const versementsMarge = b.operations.filter((o) => o.epargne && o.marge).reduce((t, o) => t + o.montant, 0)
-    + (b.reserve || []).reduce((t, r) => t + r.montant, 0);
-  const envs = [...b.enveloppes].sort((x, y) => x.ordre - y.ordre).map((e) => statsEnveloppe(b, e)).filter((s) => s.mois.length);
+  const calculs = new Map(b.mois.map((m) => [m, C.calculMois(b, m)]));
+  const parMois = b.mois.map((m) => ({ m, r: calculs.get(m) }));
+  const controles = b.mois.filter((m) => b.controles?.[m]).map((m) => ({ m, v: b.controles[m].ecart }));
+  const envs = [...b.enveloppes].sort((x, y) => x.ordre - y.ordre).map((e) => statsEnveloppe(b, e, calculs)).filter((s) => s.mois.length);
   const actives = envs.filter((s) => C.enveloppeActive(s.env, courant));
   const supprimees = envs.filter((s) => !C.enveloppeActive(s.env, courant));
   const ligneEnv = (s) => {
@@ -159,24 +171,27 @@ export function vueStats(app, b, barre) {
       <span class="ligne-corps"><div class="ligne-nom">${esc(s.env.nom)}</div>
       <div class="ligne-detail"><span>moy. ${euros(s.depenseMoyenne)}/mois</span>
         ${s.nbDepassements ? `<span class="alerte">${s.nbDepassements} dépassement${s.nbDepassements > 1 ? 's' : ''}</span>` : ''}
+        ${s.nbSousZero ? `<span class="badge sous-zero">${s.nbSousZero}× sous zéro</span>` : ''}
         <span class="noisette${dernier.noisette < 0 ? ' negatif' : ''}">🌰 ${euros(dernier.noisette)}</span></div></span>
       <span class="chevron">${CHEVRON}</span></a>`;
   };
-  const r = parMois[parMois.length - 1].r;
+  const r = calculs.get(courant);
+  const ecartMoyen = moyenne(controles.map((c) => c.v));
   app.innerHTML = `
     <header class="entete"><a class="btn-icone" href="#/b/${b.id}" aria-label="Retour au mois">${RETOUR}</a>
       <h1><span class="sur-titre">${esc(b.icone)} ${esc(b.nom)}</span>Statistiques</h1></header>
     <section class="carte tuiles">
       ${tuile('Mois suivis', String(b.mois.length), `depuis ${nomMois(b.mois[0]).toLowerCase()}`)}
-      ${tuile('🌰 Épargne globale', euros(r.epargneGlobale))}
-      ${tuile('Marge réelle moyenne', euros(moyenne(parMois.map((x) => x.r.margeReelle))))}
-      ${tuile('Marges réparties', euros(versementsMarge), 'enveloppes et Réserve')}
+      ${tuile('🌰 Stock', euros(r.stock), 'en direct')}
+      ${tuile('Résultat moyen', euros(moyenne(parMois.map((x) => x.r.resultat))), 'par mois')}
+      ${tuile('Écart avec la banque', controles.length ? euros(ecartMoyen) : '—', controles.length ? `moyenne sur ${controles.length} contrôle${controles.length > 1 ? 's' : ''}` : 'aucun contrôle encore')}
     </section>
     ${b.mois.length < 2 ? '<div class="bandeau">Les graphiques se remplissent au fil des mois.</div>' : ''}
     <section class="carte graphes">
-      ${graphLigne(parMois.map((x) => ({ m: x.m, v: x.r.epargneGlobale })), '🌰 Épargne globale en fin de mois')}
-      ${graphBarres(parMois.map((x) => ({ m: x.m, v: x.r.margeReelle })), 'Marge réelle par mois', { signe: true })}
-      ${graphBarres(parMois.map((x) => ({ m: x.m, v: x.r.consomme, ref: x.r.plafonds })), 'Dépensé dans les enveloppes', { reference: true })}
+      ${graphLigne(parMois.map((x) => ({ m: x.m, v: x.r.stock })), '🌰 Stock en fin de mois')}
+      ${graphBarres(parMois.map((x) => ({ m: x.m, v: x.r.resultat })), 'Résultat par mois', { signe: true })}
+      ${controles.length ? graphBarres(controles, 'Écart constaté avec la banque', { signe: true }) : ''}
+      ${graphBarres(parMois.map((x) => ({ m: x.m, v: x.r.depenses, ref: x.r.revenus - x.r.incompressible })), 'Dépenses des enveloppes', { reference: 'Revenus − incompressibles' })}
     </section>
     <section class="carte"><h2 class="carte-titre">Enveloppes</h2><div class="liste">${actives.map(ligneEnv).join('') || '<div class="vide">Aucune enveloppe.</div>'}</div></section>
     ${supprimees.length ? `<section class="carte"><h2 class="carte-titre">Enveloppes supprimées</h2><div class="liste">${supprimees.map(ligneEnv).join('')}</div></section>` : ''}
@@ -197,9 +212,10 @@ export function vueStatsEnveloppe(app, b, envId, barre) {
       ${tuile('Dépense moyenne', `${euros(s.depenseMoyenne)}`, 'par mois')}
       ${tuile('Plafond dépassé', `${s.nbDepassements} fois`, s.nbDepassements ? `de ${euros(s.depassementMoyen)} en moyenne` : 'jamais')}
       ${tuile('Opérations', `${s.opsMoyenne.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} / mois`, s.maxOps ? `max ${s.maxOps.nbOps} en ${nomMois(s.maxOps.m).toLowerCase()}` : '')}
-      ${tuile('Marge reçue', `${s.nbVersements} fois`, s.nbVersements ? `${euros(s.versementMoyen)} en moyenne` : 'jamais')}
+      ${tuile('Passée sous zéro', `${s.nbSousZero} mois`, s.nbSousZero ? 'au moins un jour dans le mois' : 'jamais')}
+      ${tuile('Virements reçus', `${s.nbVirementsRecus}`, s.nbVirementsRecus ? `${euros(s.virementMoyen)} en moyenne` : 'aucun')}
     </section>
-    ${s.moisNegatifs >= 2 ? `<div class="bandeau">🌰 négative depuis ${s.moisNegatifs} mois : le plafond est peut-être trop bas.</div>` : ''}
+    ${(() => { const n = s.mois.length ? C.moisNegatifs(b, env, s.mois[s.mois.length - 1]) : 0; return n >= 2 ? `<div class="bandeau">🌰 négative depuis ${n} mois : le plafond est peut-être trop bas.</div>` : ''; })()}
     <section class="carte graphes">
       ${graphLigne(s.parMois.map((x) => ({ m: x.m, v: x.noisette })), '🌰 en fin de mois')}
       ${graphBarres(s.parMois.map((x) => ({ m: x.m, v: x.consomme, ref: x.plafond })), 'Dépense et plafond par mois', { reference: true })}

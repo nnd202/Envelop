@@ -50,7 +50,7 @@ function afficher(le) {
     const lignes = r.enveloppes.map((e) => \`<tr><td>\${esc(e.env.icone)} \${esc(e.env.nom)}</td><td>\${formatMontant(e.plafond)}</td><td>\${formatMontant(e.reste)}</td><td>\${formatMontant(e.direct)}</td></tr>\`).join('');
     return \`<section><h2>\${esc(b.icone)} \${esc(b.nom)}</h2><p>\${b.mois.length} mois, de \${b.mois[0]} à \${m}. Dernier mois :</p>
       <table><tr><th>Enveloppe</th><th>Plafond</th><th>Reste</th><th>Noisette</th></tr>\${lignes}</table>
-      <p>Revenus \${formatMontant(r.revenus)} · Incompressible \${formatMontant(r.incompressible)} · Marge réelle \${formatMontant(r.margeReelle)} · Épargne globale \${formatMontant(r.epargneGlobale)}</p></section>\`;
+      <p>Revenus \${formatMontant(r.revenus)} · Incompressibles \${formatMontant(r.incompressible)} · Dépenses \${formatMontant(r.depenses)} · Résultat \${formatMontant(r.resultat, { signe: true })} · Stock \${formatMontant(r.stock)}</p></section>\`;
   }).join('');
   $('#resultat').innerHTML = \`<p class="ok">Sauvegarde du \${le ? new Date(le).toLocaleString('fr-FR') : '?'} ouverte.</p>
     <div class="boutons"><button data-x="ops">Opérations (CSV)</button><button data-x="syn">Synthèse mensuelle (CSV)</button><button data-x="json">Toutes les données (JSON)</button></div>\${bases}\`;

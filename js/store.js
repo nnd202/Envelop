@@ -3,6 +3,7 @@
 import { moisDe } from './calc.js';
 import * as K from './crypto.js';
 import * as BA from './bascule.js';
+import * as C from './calc.js';
 
 const CLE_CLAIR = 'envelop:v1'; // ancien format en clair (étapes 1 et 2), migré puis effacé
 const CLE = 'envelop:v2';
@@ -23,7 +24,14 @@ function normaliser(e) {
   e.version = 2;
   e.bases = e.bases || [];
   e.reglages = { ...REGLAGES, ...(e.reglages || {}) };
+  for (const b of e.bases) assurerSurplus(b);
   return e;
+}
+
+// Toute base a son enveloppe Surplus (ajoutée aux bases créées avant ce modèle).
+function assurerSurplus(b) {
+  if (b.enveloppes.some((x) => x.special === 'surplus')) return;
+  b.enveloppes.push({ id: uid(), special: 'surplus', nom: 'Surplus', icone: '🫙', ordre: b.enveloppes.length, creeeLe: b.mois[0], noisetteDepart: 0, flechee: false });
 }
 
 // 'ouvert' | 'verrouille' | 'clair' (données à protéger) | 'nouveau'
@@ -281,8 +289,11 @@ export function terminerCorrection(valider) {
 
 // --- Bases ---------------------------------------------------------------------
 
-export function creerBase({ nom, icone, mois }) {
-  const b = { id: uid(), nom, icone: icone || '💶', mois: [mois || moisDe(new Date())], enveloppes: [], plafonds: [], operations: [], reserve: [], notes: [] };
+// stock : tout l'argent disponible au départ, tous comptes confondus. Il commence dans le Surplus.
+export function creerBase({ nom, icone, mois, stock = 0 }) {
+  const m = mois || moisDe(new Date());
+  const b = { id: uid(), nom, icone: icone || '💶', mois: [m], enveloppes: [], plafonds: [], operations: [], controles: {}, notes: [] };
+  b.enveloppes.push({ id: uid(), special: 'surplus', nom: 'Surplus', icone: '🫙', ordre: 0, creeeLe: m, noisetteDepart: stock, flechee: false });
   modifier((e) => e.bases.push(b));
   return b;
 }
@@ -291,14 +302,25 @@ export function supprimerBase(id) {
   modifier((e) => { e.bases = e.bases.filter((b) => b.id !== id); });
 }
 
+const dateDuJour = (m) => {
+  const auj = new Date().toISOString().slice(0, 10);
+  return auj.startsWith(m) ? auj : `${m}-01`;
+};
+
 // --- Enveloppes ----------------------------------------------------------------
 
-export function creerEnveloppe(b, { nom, icone, plafond, noisetteDepart, flechee }) {
+// depart : 🌰 de départ, prise sur le Surplus par un virement (le stock ne change pas).
+export function creerEnveloppe(b, { nom, icone, plafond, depart = 0, flechee }) {
   const m = moisCourant(b);
-  const env = { id: uid(), nom, icone: icone || '✉️', ordre: b.enveloppes.length, creeeLe: m, noisetteDepart: noisetteDepart || 0, flechee: !!flechee };
+  const env = { id: uid(), nom, icone: icone || '✉️', ordre: b.enveloppes.length, creeeLe: m, noisetteDepart: 0, flechee: !!flechee };
   modifier(() => {
+    // La nouvelle enveloppe se place juste avant le Surplus.
+    const pos = C.surplusDe(b).ordre;
+    b.enveloppes.forEach((e) => { if (e.ordre >= pos) e.ordre += 1; });
+    env.ordre = pos;
     b.enveloppes.push(env);
     b.plafonds.push({ enveloppeId: env.id, depuis: m, montant: plafond || 0 });
+    if (depart) ajouterVirement(b, { depuis: C.surplusDe(b).id, vers: env.id, montant: depart, date: dateDuJour(m), mois: m, libelle: '🌰 de départ' });
   });
   return env;
 }
@@ -308,18 +330,23 @@ export function modifierEnveloppe(b, envId, champs) {
 }
 
 // Disparaît du mois en cours et des suivants ; les mois passés la gardent.
-// Si elle n'a aucun passé (créée ce mois-ci), elle est effacée complètement.
+// Sa 🌰 de fin du mois précédent revient au Surplus : le stock ne change pas.
 export function supprimerEnveloppe(b, envId) {
   const m = moisCourant(b);
   modifier(() => {
     const env = b.enveloppes.find((e) => e.id === envId);
-    b.operations = b.operations.filter((o) => !(o.cible === envId && o.mois >= m));
+    const groupes = new Set(b.operations.filter((o) => o.cible === envId && o.mois >= m && o.virement).map((o) => o.virement));
+    b.operations = b.operations.filter((o) => !(o.cible === envId && o.mois >= m) && !(o.virement && groupes.has(o.virement)));
     if (env.creeeLe >= m) {
       b.enveloppes = b.enveloppes.filter((e) => e.id !== envId);
       b.plafonds = b.plafonds.filter((p) => p.enveloppeId !== envId);
-    } else {
-      env.supprimeeDepuis = m;
-      b.plafonds = b.plafonds.filter((p) => !(p.enveloppeId === envId && p.depuis >= m));
+      return;
+    }
+    const reprise = C.noisetteAcquise(b, env, m);
+    env.supprimeeDepuis = m;
+    b.plafonds = b.plafonds.filter((p) => !(p.enveloppeId === envId && p.depuis >= m));
+    if (reprise) {
+      b.operations.push({ id: uid(), mois: m, cible: C.surplusDe(b).id, date: `${m}-01`, libelle: `Reprise de « ${env.nom} »`, montant: reprise, reprise: envId, pause: false, recurrente: false });
     }
   });
 }
@@ -327,7 +354,7 @@ export function supprimerEnveloppe(b, envId) {
 export function deplacerEnveloppe(b, envId, sens) {
   const m = moisCourant(b);
   modifier(() => {
-    const actives = b.enveloppes.filter((e) => !e.supprimeeDepuis || e.supprimeeDepuis > m).sort((x, y) => x.ordre - y.ordre);
+    const actives = b.enveloppes.filter((e) => C.enveloppeActive(e, m)).sort((x, y) => x.ordre - y.ordre);
     const i = actives.findIndex((e) => e.id === envId);
     const j = i + sens;
     if (j < 0 || j >= actives.length) return;
@@ -356,8 +383,26 @@ export function enregistrerOperation(b, op) {
   });
 }
 
+// Supprimer une moitié de virement supprime l'autre.
 export function supprimerOperation(b, opId) {
-  modifier(() => { b.operations = b.operations.filter((o) => o.id !== opId); });
+  modifier(() => {
+    const op = b.operations.find((o) => o.id === opId);
+    b.operations = b.operations.filter((o) => o.id !== opId && !(op?.virement && o.virement === op.virement));
+  });
+}
+
+// Virement : deux opérations liées, − dans l'enveloppe de départ, + dans celle d'arrivée.
+function ajouterVirement(b, { groupe, depuis, vers, montant, date, mois, libelle = '' }) {
+  const g = groupe || uid();
+  b.operations = b.operations.filter((o) => o.virement !== g);
+  const commun = { mois, date, libelle, virement: g, pause: false, recurrente: false };
+  b.operations.push({ id: uid(), cible: depuis, montant: -Math.abs(montant), vers, ...commun });
+  b.operations.push({ id: uid(), cible: vers, montant: Math.abs(montant), depuis, ...commun });
+  return g;
+}
+
+export function enregistrerVirement(b, v) {
+  modifier(() => ajouterVirement(b, v));
 }
 
 // --- Démo ----------------------------------------------------------------------
@@ -365,36 +410,37 @@ export function supprimerOperation(b, opId) {
 
 export function creerDemo() {
   const m = moisDe(new Date());
-  const b = creerBase({ nom: 'Démo', icone: '🧪', mois: m });
+  const b = creerBase({ nom: 'Démo', icone: '🧪', mois: m, stock: 320000 });
   const jour = (j) => `${m}-${String(j).padStart(2, '0')}`;
-  const envs = [
-    ['🛒', 'Courses', 25000, 18040, [[3, -4210], [9, -5675], [17, -3890]]],
-    ['⛽', 'Carburant', 8000, 9520, [[12, -6150]]],
-    ['🎉', 'Loisirs', 12000, 31000, [[6, -2800], [14, -9450]]],
-    ['🎁', 'Cadeaux', 4000, -6500, []],
-    ['🔧', 'Entretien', 3000, 21000, [[21, -11000]]],
-    ['🌠', 'Imprévus', 0, 0, [[18, -2350]]],
-  ];
-  for (const [icone, nom, pl, depart, ops] of envs) {
-    const env = creerEnveloppe(b, { nom, icone, plafond: pl, noisetteDepart: depart, flechee: nom === 'Entretien' });
-    for (const [j, montant] of ops) enregistrerOperation(b, { mois: m, cible: env.id, date: jour(j), libelle: '', montant, pause: false, epargne: false, recurrente: false });
-  }
   const fixes = [
-    ['charge', 'Loyer', 65000], ['charge', 'Électricité', 4500], ['charge', 'Box internet', 2999],
-    ['charge', 'Téléphone', 1299], ['charge', 'Streaming', 1099, true], ['revenu', 'Salaire', 190000],
+    ['revenu', 'Salaire', 190000], ['charge', 'Loyer', 65000], ['charge', 'Électricité', 4500],
+    ['charge', 'Box internet', 2999], ['charge', 'Téléphone', 1299], ['charge', 'Streaming', 1099, true],
   ];
   for (const [cible, libelle, montant, pause] of fixes) {
-    enregistrerOperation(b, { mois: m, cible, date: jour(1), libelle, montant, pause: !!pause, epargne: false, recurrente: true });
+    enregistrerOperation(b, { mois: m, cible, date: jour(1), libelle, montant, pause: !!pause, recurrente: true });
   }
+  const envs = [
+    ['🛒', 'Courses', 32000, 18000, [[3, -4210], [9, -5675], [17, -3890]]],
+    ['⛽', 'Carburant', 9000, 9500, [[12, -6150]]],
+    ['🎉', 'Sorties', 12000, 30000, [[6, -2800], [14, -9450]]],
+    ['🎁', 'Cadeaux', 4000, 0, []],
+    ['🚗', 'Voiture', 5000, 40000, [[11, -50000]]],
+    ['👕', 'Vêtements', 5000, 6000, [[19, -2390]]],
+  ];
+  for (const [icone, nom, pl, depart, ops] of envs) {
+    const env = creerEnveloppe(b, { nom, icone, plafond: pl, depart, flechee: nom === 'Voiture' });
+    for (const [j, montant] of ops) enregistrerOperation(b, { mois: m, cible: env.id, date: jour(j), libelle: '', montant, pause: false, recurrente: false });
+  }
+  const voiture = b.enveloppes.find((e) => e.nom === 'Voiture');
+  enregistrerVirement(b, { depuis: C.surplusDe(b).id, vers: voiture.id, montant: 5000, date: jour(20), mois: m, libelle: 'Renflouer la voiture' });
   return b;
 }
 
-
 // --- Bascule de mois -----------------------------------------------------------
 
-export function basculer(b, repartition) {
+export function basculer(b, { stockReel = null } = {}) {
   let suivant;
-  modifier(() => { suivant = BA.appliquer(b, repartition); });
+  modifier(() => { suivant = BA.appliquer(b, { stockReel }); });
   return suivant;
 }
 

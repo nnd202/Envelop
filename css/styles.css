@@ -223,3 +223,25 @@ body.fige { overflow: hidden; }
 
 .titre-action { display: flex; justify-content: space-between; align-items: center; }
 .mini { border: 0; background: #e7f7f6; color: var(--petrole); border-radius: 10px; padding: 5px 10px; font-size: 0.75rem; font-weight: 600; text-transform: none; letter-spacing: 0; }
+
+/* --- Modèle Surplus ------------------------------------------------------------- */
+.ligne-surplus { background: linear-gradient(90deg, #f6fdfb, #ffffff); }
+.badge.sous-zero { background: #fff1e0; color: #a35a00; }
+.sous-zero-info { margin-top: 10px; font-size: 0.82rem; color: #a35a00; background: #fff1e0; border-radius: 10px; padding: 6px 10px; display: inline-block; }
+.bloc-titre { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--teal); margin: 14px 0 2px; font-weight: 700; }
+.bloc-titre:first-child { margin-top: 6px; }
+.bandeau-alerte { background: #fdeceb; color: #9b2c2c; }
+.montant-plus { color: var(--hausse); }
+.montant-moins { color: var(--texte); }
+.montant-virement { color: var(--petrole); }
+.types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; background: #f1f6f8; padding: 4px; border-radius: 14px; }
+.type { border: 0; background: none; border-radius: 11px; padding: 10px 4px; font-weight: 600; color: var(--texte-doux); font-size: 0.92rem; }
+.type.on { background: white; color: var(--petrole); box-shadow: 0 2px 6px rgba(11,100,119,0.12); }
+.type:disabled { opacity: 0.35; }
+.signe { display: grid; place-items: center; }
+.signe.virement { background: #e4f4f6; color: var(--petrole); font-size: 1.3rem; }
+.verdict { border-radius: 14px; padding: 12px 14px; font-size: 0.9rem; line-height: 1.45; margin-bottom: 10px; }
+.verdict.ok { background: #e3f8ee; color: #136b4d; }
+.verdict.plus { background: #e7f4f8; color: var(--petrole); }
+.verdict.moins { background: #fdeceb; color: #9b2c2c; }
+.graphe .grille { stroke: #eef3f6; stroke-width: 1; }
