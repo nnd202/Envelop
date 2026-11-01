@@ -23,7 +23,7 @@ JavaScript simple, sans framework ni compilation.
 - `js/calc.js` : moteur de calcul (montants en centimes, tout est recalculé à partir des saisies).
 - `js/store.js` : stockage local et modifications.
 - `js/app.js` : interface ; `js/stats.js` : statistiques et graphiques.
-- `js/bascule.js` : bascule de mois ; `js/crypto.js` : chiffrement ; `js/importtodo.js` : import To Do ; `js/export.js` : CSV.
+- `js/bascule.js` : bascule de mois ; `js/crypto.js` : chiffrement ; `js/export.js` : CSV.
 - `lecteur.html` : généré par `node tools/build-lecteur.mjs`, ouvre une sauvegarde sans l'appli.
 - `node tools/check.mjs` : vérifie la liste des fichiers hors ligne (`sw.js`), que `lecteur.html` est à jour, et lance tous les tests.
 
@@ -32,5 +32,4 @@ JavaScript simple, sans framework ni compilation.
 1. ✅ Cœur : bases, enveloppes, plafonds, opérations, charges fixes, revenus, synthèse.
 2. ✅ Bascule de mois : report des récurrentes, répartition obligatoire de la marge (enveloppes et Réserve), mois passés en lecture seule, historique, annulation de la dernière bascule.
 3. ✅ Chiffrement par mot de passe (PBKDF2 + AES-GCM), verrouillage auto, sauvegarde chiffrée (partage ou dossier sur PC), rappel, restauration, copies automatiques, mode correction des mois passés.
-4. ✅ Import d'un mois exporté de Microsoft To Do (Graph Explorer) : aperçu modifiable, contrôles, mois plus anciens ajoutés pour l'historique sans toucher aux mois ancrés.
-5. ✅ Statistiques par base et par enveloppe, graphiques ; export lisible CSV ; lecteur de sauvegarde autonome (`lecteur.html`).
+4. ✅ Statistiques par base et par enveloppe, graphiques ; export lisible CSV ; lecteur de sauvegarde autonome (`lecteur.html`).

@@ -21,4 +21,3 @@ console.log(`CORE complet (${fichiers.length} fichiers).`);
 await import('./test-calc.mjs');
 const { execFileSync } = await import('node:child_process');
 console.log(execFileSync('node', [join(racine, 'tools/build-lecteur.mjs'), '--verifier']).toString().trim());
-await import('./test-import.mjs');

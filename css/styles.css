@@ -220,3 +220,6 @@ body.fige { overflow: hidden; }
 .baton-cle { background: var(--teal); }
 .depasse-cle { background: var(--baisse); }
 .plafond-cle { height: 0 !important; border-top: 2px dashed var(--nuit); border-radius: 0 !important; vertical-align: 3px !important; }
+
+.titre-action { display: flex; justify-content: space-between; align-items: center; }
+.mini { border: 0; background: #e7f7f6; color: var(--petrole); border-radius: 10px; padding: 5px 10px; font-size: 0.75rem; font-weight: 600; text-transform: none; letter-spacing: 0; }
