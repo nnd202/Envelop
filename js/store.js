@@ -149,7 +149,7 @@ function horodatage(d = new Date()) {
 
 // Extension .txt : Android n'accepte pas le partage de fichiers .json (« Permission denied »).
 // Le contenu reste le même fichier chiffré ; l'import accepte .txt et .json.
-export const nomSauvegarde = () => `envelop-sauvegarde-${horodatage()}.txt`;
+export const nomSauvegarde = () => `${horodatage()} - Export Envelop.txt`;
 
 export async function texteSauvegarde() {
   const c = await K.chiffrer(cle, etat);
@@ -438,9 +438,9 @@ export function creerDemo() {
 
 // --- Bascule de mois -----------------------------------------------------------
 
-export function basculer(b, { stockReel = null } = {}) {
+export function basculer(b, { stockReel = null, differe = 0 } = {}) {
   let suivant;
-  modifier(() => { suivant = BA.appliquer(b, { stockReel }); });
+  modifier(() => { suivant = BA.appliquer(b, { stockReel, differe }); });
   return suivant;
 }
 

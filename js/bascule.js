@@ -27,14 +27,16 @@ export function preparer(base) {
   return { mois: m, suivant, resultat: r.resultat, stockDebut: r.stockDebut, stockCalcule: r.stock, recurrentes };
 }
 
-// stockReel : centimes, ou null si l'utilisateur ne vérifie pas ce mois-ci.
-export function appliquer(base, { stockReel = null } = {}) {
+// stockReel : ce qui est sur les comptes (centimes), ou null si l'utilisateur ne vérifie pas ce mois-ci.
+// differe : débit différé déjà saisi dans le mois mais pas encore prélevé par la banque ;
+// il est retiré du solde bancaire avant la comparaison, pour éviter un faux écart chaque mois.
+export function appliquer(base, { stockReel = null, differe = 0 } = {}) {
   const p = preparer(base);
   const marque = { bascule: p.suivant };
   if (stockReel != null) {
-    const ecart = stockReel - p.stockCalcule;
+    const ecart = stockReel - differe - p.stockCalcule;
     base.controles = base.controles || {};
-    base.controles[p.mois] = { reel: stockReel, calcule: p.stockCalcule, ecart };
+    base.controles[p.mois] = { reel: stockReel, differe, calcule: p.stockCalcule, ecart };
     const surplus = C.surplusDe(base);
     if (ecart && surplus) {
       base.operations.push({

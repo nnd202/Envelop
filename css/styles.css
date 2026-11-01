@@ -245,3 +245,4 @@ body.fige { overflow: hidden; }
 .verdict.plus { background: #e7f4f8; color: var(--petrole); }
 .verdict.moins { background: #fdeceb; color: #9b2c2c; }
 .graphe .grille { stroke: #eef3f6; stroke-width: 1; }
+.synthese-ligne span:last-child { white-space: nowrap; padding-left: 10px; }

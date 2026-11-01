@@ -209,7 +209,7 @@ function vueMois(b, mois) {
         ${ligneS('Résultat', euros(r.resultat, { signe: true }))}
         ${r.ecart ? ligneS('Écart constaté', euros(r.ecart, { signe: true })) : ''}
         ${ligneS(passe ? '🌰 Fin du mois' : '🌰 En direct', `<span class="noisette${negClass(r.stock)}">${euros(r.stock)} ${fleche(r.stockTendance)}</span>`, { classe: 'forte' })}
-        ${controlePrec ? `<p class="aide" style="margin:6px 0 0">Contrôle de ${nomMois(C.moisPrecedent(m)).toLowerCase()} : ${controlePrec.ecart ? `écart de ${euros(controlePrec.ecart, { signe: true })}` : 'aucun écart'}.</p>` : ''}
+        ${controlePrec ? `<p class="aide" style="margin:6px 0 0">Contrôle de ${nomMois(C.moisPrecedent(m)).toLowerCase()} : ${controlePrec.ecart ? `écart de ${euros(controlePrec.ecart, { signe: true })}` : 'aucun écart'}${controlePrec.differe ? ` (débit différé de ${euros(controlePrec.differe)} déduit)` : ''}.</p>` : ''}
       </div>
     </section>
     ${barre(b, passe ? '' : 'mois')}`;
@@ -700,6 +700,8 @@ function fenetreBascule(b) {
       <div class="synthese-ligne forte"><span>Stock calculé</span><span>${euros(p.stockCalcule)}</span></div>
     </div>
     <label class="champ" data-champ="reel" style="margin-top:16px"><span>Combien as-tu réellement aujourd'hui, tous comptes confondus ?</span><input name="reel" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+    <label class="champ" data-champ="differe"><span>Dont débit différé pas encore prélevé (carte à débit différé)</span><input name="differe" inputmode="decimal" placeholder="0,00" value="${enCentimesTexte(b.dernierDiffere || 0)}" autocomplete="off"></label>
+    <p class="aide" style="margin-top:-6px">Tes achats à la carte de ce mois sont déjà saisis, mais la banque ne les prélèvera qu'au début du mois prochain : ils sont retirés du solde avant de comparer.</p>
     <label class="coche"><input type="checkbox" name="passer"> Je ne vérifie pas ce mois-ci</label>
     <div class="verdict" data-verdict hidden></div>
     <p class="aide">${nomMois(p.mois)} passera en lecture seule. ${nbRec} opération${nbRec > 1 ? 's' : ''} récurrente${nbRec > 1 ? 's' : ''} ${nbRec > 1 ? 'seront reportées' : 'sera reportée'}, et chaque enveloppe garde sa 🌰.</p>
@@ -711,10 +713,13 @@ function fenetreBascule(b) {
     const annuler = f.querySelector('[data-b=annuler]');
     const verdict = f.querySelector('[data-verdict]');
     const reel = f.querySelector('[name=reel]');
+    const differeInput = f.querySelector('[name=differe]');
     const passer = f.querySelector('[name=passer]');
     let stockReel = null;
+    let differe = 0;
     const maj = () => {
       reel.disabled = passer.checked;
+      differeInput.disabled = passer.checked;
       if (passer.checked) {
         stockReel = null;
         verdict.hidden = true;
@@ -724,10 +729,13 @@ function fenetreBascule(b) {
         return;
       }
       const v = reel.value.trim() === '' ? null : C.lireMontant(reel.value);
+      const d = differeInput.value.trim() === '' ? 0 : C.lireMontant(differeInput.value);
+      differeInput.closest('.champ').classList.toggle('erreur', d == null);
       stockReel = v;
-      valider.disabled = v == null;
-      if (v == null) { verdict.hidden = true; return; }
-      const ecart = v - p.stockCalcule;
+      differe = Math.abs(d ?? 0);
+      valider.disabled = v == null || d == null;
+      if (v == null || d == null) { verdict.hidden = true; return; }
+      const ecart = v - differe - p.stockCalcule;
       verdict.hidden = false;
       if (ecart === 0) {
         verdict.className = 'verdict ok';
@@ -747,13 +755,15 @@ function fenetreBascule(b) {
       }
     };
     reel.addEventListener('input', maj);
+    differeInput.addEventListener('input', maj);
     passer.addEventListener('change', maj);
     setTimeout(() => reel.focus(), 60);
     f.addEventListener('click', (ev) => {
       const a = ev.target.closest('[data-b]')?.dataset.b;
       if (a === 'annuler') return fermer();
       if (a !== 'valider' || valider.disabled) return;
-      S.basculer(b, { stockReel: passer.checked ? null : stockReel });
+      if (!passer.checked) S.modifier(() => { b.dernierDiffere = differe; });
+      S.basculer(b, { stockReel: passer.checked ? null : stockReel, differe: passer.checked ? 0 : differe });
       fermer();
       aller(`#/b/${b.id}`);
       route();
@@ -1051,8 +1061,8 @@ app.addEventListener('click', async (ev) => {
       const h = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
       const etat = { bases: S.bases() };
       await partager([
-        new File([EX.csvOperations(etat)], `envelop-operations-${h}.csv`, { type: 'text/csv' }),
-        new File([EX.csvSynthese(etat)], `envelop-synthese-${h}.csv`, { type: 'text/csv' }),
+        new File([EX.csvOperations(etat)], `${h} - Export Envelop - opérations.csv`, { type: 'text/csv' }),
+        new File([EX.csvSynthese(etat)], `${h} - Export Envelop - synthèse.csv`, { type: 'text/csv' }),
       ], 'Export Envelop');
       return;
     }

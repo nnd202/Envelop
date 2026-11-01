@@ -69,7 +69,7 @@ const prep = BA.preparer(b);
 assert.equal(prep.stockCalcule, 75000);
 BA.appliquer(b, { stockReel: 70000 });
 assert.deepEqual(b.mois, ['2026-01', '2026-02']);
-assert.deepEqual(b.controles['2026-01'], { reel: 70000, calcule: 75000, ecart: -5000 });
+assert.deepEqual(b.controles['2026-01'], { reel: 70000, differe: 0, calcule: 75000, ecart: -5000 });
 const jan = C.calculMois(b, '2026-01');
 assert.equal(jan.stock, 70000);
 assert.equal(jan.ecart, -5000);
@@ -85,6 +85,11 @@ BA.annuler(b);
 assert.deepEqual(b.mois, ['2026-01']);
 assert.equal(b.controles['2026-01'], undefined);
 assert.equal(C.calculMois(b, '2026-01').stock, 75000);
+// Débit différé : 750 € sur les comptes dont 50 € pas encore prélevés → 700 attendus, pas d'écart si calculé = 700
+const bd = base();
+const stockAttendu = BA.preparer(bd).stockCalcule;
+BA.appliquer(bd, { stockReel: stockAttendu + 60000, differe: 60000 });
+assert.equal(bd.controles['2026-01'].ecart, 0);
 // Bascule sans vérification
 BA.appliquer(b, { stockReel: null });
 assert.equal(C.calculMois(b, '2026-02').stockDebut, 75000);
