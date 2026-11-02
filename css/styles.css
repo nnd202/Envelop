@@ -246,3 +246,17 @@ body.fige { overflow: hidden; }
 .verdict.moins { background: #fdeceb; color: #9b2c2c; }
 .graphe .grille { stroke: #eef3f6; stroke-width: 1; }
 .synthese-ligne span:last-child { white-space: nowrap; padding-left: 10px; }
+
+/* --- Code à 6 chiffres ------------------------------------------------------------ */
+.pave-tete { text-align: center; }
+.pave-tete h2 { margin: 0 0 6px; font-size: 1.2rem; }
+.pave-texte { color: var(--texte-doux); font-size: 0.88rem; margin: 0 0 14px; min-height: 2.6em; }
+.pave-tete .message-erreur { min-height: 2.6em; margin: 0 0 14px; }
+.points { display: flex; justify-content: center; gap: 14px; margin-bottom: 20px; }
+.points i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--teal); }
+.points i.plein { background: var(--teal); }
+.pave { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 290px; margin: 0 auto; }
+.pave.attente { opacity: 0.5; pointer-events: none; }
+.touche { height: 62px; border: 0; border-radius: 18px; background: #f1f6f8; font-size: 1.6rem; font-weight: 600; color: var(--nuit); }
+.touche:active { background: #d9eef0; }
+.touche.effacer { background: none; font-size: 1.3rem; color: var(--texte-doux); }

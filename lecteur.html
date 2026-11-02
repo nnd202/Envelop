@@ -41,15 +41,18 @@ function nouveauSel() {
   return versBase64(crypto.getRandomValues(new Uint8Array(16)));
 }
 
+// Octets bruts de la clé (même résultat que deriveKey) : permet de les protéger par le code à 6 chiffres.
+async function deriverOctets(motDePasse, sel, iterations = ITERATIONS) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(motDePasse), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: depuisBase64(sel), iterations, hash: 'SHA-256' }, base, 256));
+}
+
+function importerCle(octets) {
+  return crypto.subtle.importKey('raw', octets, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+
 async function deriverCle(motDePasse, sel, iterations = ITERATIONS) {
-  const base = await crypto.subtle.importKey('raw', enc.encode(motDePasse), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: depuisBase64(sel), iterations, hash: 'SHA-256' },
-    base,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
+  return importerCle(await deriverOctets(motDePasse, sel, iterations));
 }
 
 async function chiffrer(cle, objet) {

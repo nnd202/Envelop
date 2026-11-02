@@ -785,6 +785,7 @@ function vueAcces() {
   document.querySelector('.toast')?.remove();
   document.body.classList.remove('fige');
   couche.hidden = true;
+  if (st === 'verrouille' && S.aCode() && !parMotDePasse) return vueCode();
   if (st === 'verrouille') {
     app.innerHTML = `
       <header class="entete"><h1><span class="sur-titre">Envelop</span>Déverrouiller</h1></header>
@@ -793,6 +794,7 @@ function vueAcces() {
         <label class="champ"><span>Mot de passe</span><input name="mdp" type="password" autocomplete="current-password" required></label>
         <p class="message-erreur" data-erreur hidden>Mot de passe incorrect.</p>
         <button class="btn btn-principal btn-large">Déverrouiller</button>
+        ${S.aCode() ? '<button type="button" class="lien" data-action-acces="code">Utiliser mon code à 6 chiffres</button>' : ''}
         <button type="button" class="lien" data-action-acces="oubli">Mot de passe oublié ?</button>
       </form>`;
     setTimeout(() => app.querySelector('[name=mdp]')?.focus(), 80);
@@ -822,7 +824,12 @@ app.addEventListener('submit', async (ev) => {
   if (form.dataset.form === 'deverrouiller') {
     bouton.textContent = 'Vérification…';
     const ok = await S.deverrouiller(mdp);
-    if (ok) return route();
+    if (ok) {
+      parMotDePasse = false;
+      route();
+      if (!S.aCode()) setTimeout(() => proposerCode(), 400);
+      return;
+    }
     erreur.hidden = false;
     bouton.disabled = false;
     bouton.textContent = 'Déverrouiller';
@@ -839,11 +846,15 @@ app.addEventListener('submit', async (ev) => {
     bouton.textContent = 'Chiffrement…';
     await S.creerMotDePasse(mdp);
     route();
+    setTimeout(() => proposerCode(), 400);
   }
 });
 
 app.addEventListener('click', async (ev) => {
-  if (ev.target.closest('[data-action-acces]')?.dataset.actionAcces !== 'oubli') return;
+  const acces = ev.target.closest('[data-action-acces]')?.dataset.actionAcces;
+  if (acces === 'mot-de-passe') { parMotDePasse = true; return route(); }
+  if (acces === 'code') { parMotDePasse = false; return route(); }
+  if (acces !== 'oubli') return;
   ouvrir(`<h2>Mot de passe oublié</h2>
     <p>Il n'existe aucun moyen de retrouver tes données sans ton mot de passe : elles sont chiffrées, et rien n'est envoyé nulle part.</p>
     <p>Tu peux tout effacer sur cet appareil et repartir de zéro, puis restaurer une sauvegarde avec le mot de passe qui la protégeait.</p>
@@ -860,6 +871,118 @@ app.addEventListener('click', async (ev) => {
     });
   });
 });
+
+// --- Code à 6 chiffres : pavé numérique mélangé ------------------------------------
+
+let parMotDePasse = false;
+
+const melanger = (t) => {
+  const a = [...t];
+  for (let i = a.length - 1; i > 0; i -= 1) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
+// Affiche un pavé numérique dans `cible` ; les chiffres changent de place à chaque affichage.
+function pave(cible, { titre, texte = '', surComplet, bas = '' }) {
+  let saisie = '';
+  const dessiner = (message = texte, erreur = false) => {
+    const ch = melanger(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+    const touches = [...ch.slice(0, 9), '', ch[9], '⌫'];
+    cible.innerHTML = `
+      <div class="pave-tete"><div class="cadenas">🔒</div><h2>${titre}</h2>
+        <p class="${erreur ? 'message-erreur' : 'pave-texte'}">${message}</p>
+        <div class="points">${[0, 1, 2, 3, 4, 5].map((i) => `<i class="${i < saisie.length ? 'plein' : ''}"></i>`).join('')}</div></div>
+      <div class="pave">${touches.map((t) => (t === '' ? '<span></span>' : `<button type="button" class="touche${t === '⌫' ? ' effacer' : ''}" data-t="${t}" aria-label="${t === '⌫' ? 'Effacer' : t}">${t}</button>`)).join('')}</div>
+      ${bas}`;
+  };
+  const majPoints = () => cible.querySelectorAll('.points i').forEach((p, i) => p.classList.toggle('plein', i < saisie.length));
+  cible.onclick = async (ev) => {
+    const t = ev.target.closest('[data-t]')?.dataset.t;
+    if (!t || saisie.length >= 6 && t !== '⌫') return;
+    if (t === '⌫') { saisie = saisie.slice(0, -1); return majPoints(); }
+    saisie += t;
+    majPoints();
+    if (saisie.length === 6) {
+      const code = saisie;
+      cible.querySelector('.pave').classList.add('attente');
+      const res = await surComplet(code);
+      saisie = '';
+      if (res) dessiner(res.message, res.erreur);
+    }
+  };
+  dessiner();
+  return { redessiner: dessiner };
+}
+
+const codeTropSimple = (c) => /^(\d)\1{5}$/.test(c) || '0123456789'.includes(c) || '9876543210'.includes(c);
+
+function vueCode() {
+  app.innerHTML = `<header class="entete"><h1><span class="sur-titre">Envelop</span>Déverrouiller</h1></header>
+    <section class="carte acces" data-pave></section>`;
+  pave(app.querySelector('[data-pave]'), {
+    titre: 'Ton code',
+    texte: 'Les chiffres changent de place à chaque fois.',
+    bas: '<button type="button" class="lien" data-action-acces="mot-de-passe">Utiliser mon mot de passe</button>',
+    surComplet: async (c) => {
+      const r = await S.deverrouillerCode(c);
+      if (r.ok) { route(); return null; }
+      if (r.restants === 0) {
+        parMotDePasse = true;
+        route();
+        alerte('Trop de codes erronés : le code a été désactivé sur cet appareil. Déverrouille avec ton mot de passe, puis recrée un code dans les Réglages.');
+        return null;
+      }
+      return { message: `Code incorrect. Encore ${r.restants} essai${r.restants > 1 ? 's' : ''}, puis le mot de passe sera exigé.`, erreur: true };
+    },
+  });
+}
+
+// Création (ou changement) du code, en deux saisies.
+function fenetreCode() {
+  let premier = null;
+  ouvrir('<div data-pave></div><button class="btn btn-large lien" data-r="annuler">Annuler</button>', (f) => {
+    f.querySelector('[data-r=annuler]').addEventListener('click', fermer);
+    const zone = f.querySelector('[data-pave]');
+    const p = pave(zone, {
+      titre: 'Choisis ton code',
+      texte: '6 chiffres, pour déverrouiller Envelop sur cet appareil.',
+      surComplet: async (c) => {
+        if (!premier) {
+          if (codeTropSimple(c)) return { message: 'Trop simple : évite les suites et les chiffres répétés.', erreur: true };
+          premier = c;
+          zone.querySelector('h2').textContent = 'Confirme ton code';
+          return { message: 'Tape-le une seconde fois.' };
+        }
+        if (c !== premier) {
+          premier = null;
+          return { message: 'Les deux codes diffèrent. Recommence.', erreur: true };
+        }
+        await S.definirCode(c);
+        fermer();
+        toast('Code enregistré. Ton mot de passe reste valable, et protège toujours tes sauvegardes.');
+        if (location.hash === '#/reglages') route();
+        return null;
+      },
+    });
+    void p;
+  });
+}
+
+function proposerCode() {
+  if (S.statut() !== 'ouvert' || S.aCode()) return;
+  ouvrir(`<h2>Un code à 6 chiffres ?</h2>
+    <p>Comme dans une appli bancaire : un pavé numérique dont les chiffres changent de place. Ton mot de passe reste valable, et c'est toujours lui qui protège tes sauvegardes.</p>
+    <div class="actions"><button class="btn btn-second" data-r="0">Plus tard</button><button class="btn btn-principal" data-r="1">Créer mon code</button></div>`, (f) => {
+    f.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-r]')?.dataset.r;
+      if (r === '0') fermer();
+      if (r === '1') fenetreCode();
+    });
+  });
+}
 
 // Verrouillage automatique après 5 minutes en arrière-plan.
 let cacheLe = 0;
@@ -1018,6 +1141,8 @@ async function vueReglages() {
       ${copies.map((c, i) => `<button class="ligne" data-reg="copie" data-i="${i}"><span class="ligne-corps"><div class="ligne-nom">${esc(c.raison)}</div><div class="ligne-detail">${new Date(c.le).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</div></span><span class="badge">Restaurer</span></button>`).join('') || '<div class="vide">Aucune copie. Une copie est faite avant chaque import, correction ou suppression de base.</div>'}
     </div></section>
     <section class="carte"><h2 class="carte-titre">Sécurité</h2><div class="liste">
+      <button class="ligne" data-reg="code"><span class="ligne-corps"><div class="ligne-nom">${S.aCode() ? 'Changer le code à 6 chiffres' : 'Créer un code à 6 chiffres'}</div><div class="ligne-detail">Pavé numérique mélangé pour déverrouiller cet appareil</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      ${S.aCode() ? '<button class="ligne" data-reg="sans-code"><span class="ligne-corps"><div class="ligne-nom">Supprimer le code</div><div class="ligne-detail">Le mot de passe sera de nouveau demandé</div></span></button>' : ''}
       <button class="ligne" data-reg="mdp"><span class="ligne-corps"><div class="ligne-nom">Changer le mot de passe</div><div class="ligne-detail">Les anciennes sauvegardes gardent l'ancien mot de passe</div></span><span class="chevron">${ICONES.chevron}</span></button>
       <button class="ligne" data-reg="verrouiller"><span class="ligne-corps"><div class="ligne-nom">Verrouiller maintenant</div><div class="ligne-detail">Verrouillage automatique après 5 minutes en arrière-plan</div></span></button>
     </div></section>`;
@@ -1049,6 +1174,11 @@ app.addEventListener('click', async (ev) => {
       return;
     }
     if (a === 'mdp') return fenetreMotDePasse();
+    if (a === 'code') return fenetreCode();
+    if (a === 'sans-code') {
+      if (await confirmer({ titre: 'Supprimer le code ?', texte: 'Envelop demandera de nouveau ton mot de passe pour se déverrouiller.', bouton: 'Supprimer', danger: false })) { S.supprimerCode(); route(); }
+      return;
+    }
     if (a === 'lecteur') {
       const html = await (await fetch('lecteur.html')).text();
       if (await partager([new File([html], 'envelop-lecteur.html', { type: 'text/html' })], 'Lecteur de sauvegarde Envelop')) toast('Lecteur enregistré. Range-le à côté de tes sauvegardes.');
@@ -1088,7 +1218,8 @@ function fenetreMotDePasse() {
       if (v('n') !== v('n2')) { err.textContent = 'Les deux nouveaux mots de passe diffèrent.'; err.hidden = false; return; }
       if (!(await S.changerMotDePasse(v('a'), v('n')))) { err.textContent = 'Mot de passe actuel incorrect.'; err.hidden = false; return; }
       fermer();
-      toast('Mot de passe changé. Pense à faire une nouvelle sauvegarde.');
+      toast('Mot de passe changé : recrée ton code à 6 chiffres, et fais une nouvelle sauvegarde.');
+      route();
     });
   });
 }

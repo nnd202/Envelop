@@ -8,12 +8,16 @@ import * as C from './calc.js';
 const CLE_CLAIR = 'envelop:v1'; // ancien format en clair (étapes 1 et 2), migré puis effacé
 const CLE = 'envelop:v2';
 const CLE_COPIES = 'envelop:v2:copies';
+const CLE_CODE = 'envelop:v2:code'; // clé des données protégée par le code à 6 chiffres
+const CODE_ITERATIONS = 600000;
+const CODE_ESSAIS = 5;
 const MAX_COPIES = 5;
 
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
 let etat = null; // données déchiffrées
 let cle = null; // CryptoKey, en mémoire seulement
+let cleBrute = null; // mêmes octets, pour pouvoir créer le code à 6 chiffres
 let kdf = null; // { sel, iterations }
 let ecriture = Promise.resolve();
 let minuterieDossier = null;
@@ -58,7 +62,8 @@ export const attendreEcriture = () => ecriture;
 
 export async function creerMotDePasse(motDePasse) {
   kdf = { sel: K.nouveauSel(), iterations: K.ITERATIONS };
-  cle = await K.deriverCle(motDePasse, kdf.sel, kdf.iterations);
+  cleBrute = await K.deriverOctets(motDePasse, kdf.sel, kdf.iterations);
+  cle = await K.importerCle(cleBrute);
   let depart = { bases: [] };
   try { depart = JSON.parse(localStorage.getItem(CLE_CLAIR)) || depart; } catch { /* rien à migrer */ }
   etat = normaliser(depart);
@@ -68,20 +73,73 @@ export async function creerMotDePasse(motDePasse) {
 
 export async function deverrouiller(motDePasse) {
   const stocke = JSON.parse(localStorage.getItem(CLE));
-  const k = await K.deriverCle(motDePasse, stocke.kdf.sel, stocke.kdf.iterations);
+  const octets = await K.deriverOctets(motDePasse, stocke.kdf.sel, stocke.kdf.iterations);
+  const k = await K.importerCle(octets);
   try {
     etat = normaliser(await K.dechiffrer(k, stocke));
   } catch {
     return false;
   }
   cle = k;
+  cleBrute = octets;
   kdf = stocke.kdf;
+  const code = lireCode();
+  if (code?.essais) { code.essais = 0; localStorage.setItem(CLE_CODE, JSON.stringify(code)); }
   return true;
+}
+
+// --- Code à 6 chiffres -------------------------------------------------------------
+// Sur cet appareil seulement : le code protège la clé des données, que seul le mot de passe
+// permet de retrouver autrement. Les sauvegardes restent chiffrées avec le mot de passe.
+// Après 5 codes faux, le code est effacé et le mot de passe redevient obligatoire.
+
+function lireCode() {
+  try { return JSON.parse(localStorage.getItem(CLE_CODE)); } catch { return null; }
+}
+
+export const aCode = () => !!lireCode();
+export const essaisCode = () => CODE_ESSAIS - (lireCode()?.essais || 0);
+
+export async function definirCode(code) {
+  const sel = K.nouveauSel();
+  const k = await K.deriverCle(code, sel, CODE_ITERATIONS);
+  const c = await K.chiffrer(k, { cle: K.versBase64(cleBrute) });
+  localStorage.setItem(CLE_CODE, JSON.stringify({ sel, iterations: CODE_ITERATIONS, essais: 0, ...c }));
+}
+
+export function supprimerCode() {
+  localStorage.removeItem(CLE_CODE);
+}
+
+// Renvoie { ok } ou { ok: false, restants } ; restants = 0 → code effacé, mot de passe exigé.
+export async function deverrouillerCode(code) {
+  const enreg = lireCode();
+  if (!enreg) return { ok: false, restants: 0 };
+  const k = await K.deriverCle(code, enreg.sel, enreg.iterations);
+  let octets;
+  try {
+    octets = K.depuisBase64((await K.dechiffrer(k, enreg)).cle);
+  } catch {
+    enreg.essais = (enreg.essais || 0) + 1;
+    if (enreg.essais >= CODE_ESSAIS) { supprimerCode(); return { ok: false, restants: 0 }; }
+    localStorage.setItem(CLE_CODE, JSON.stringify(enreg));
+    return { ok: false, restants: CODE_ESSAIS - enreg.essais };
+  }
+  const stocke = JSON.parse(localStorage.getItem(CLE));
+  const kd = await K.importerCle(octets);
+  etat = normaliser(await K.dechiffrer(kd, stocke));
+  cle = kd;
+  cleBrute = octets;
+  kdf = stocke.kdf;
+  enreg.essais = 0;
+  localStorage.setItem(CLE_CODE, JSON.stringify(enreg));
+  return { ok: true };
 }
 
 export function verrouiller() {
   etat = null;
   cle = null;
+  cleBrute = null;
   correction = null;
 }
 
@@ -91,7 +149,9 @@ export async function changerMotDePasse(ancien, nouveau) {
   try { await K.dechiffrer(ancienneCle, stocke); } catch { return false; }
   const copies = await Promise.all(listeCopies().map(async (c) => ({ ...c, contenu: await K.dechiffrer(ancienneCle, c) })));
   kdf = { sel: K.nouveauSel(), iterations: K.ITERATIONS };
-  cle = await K.deriverCle(nouveau, kdf.sel, kdf.iterations);
+  cleBrute = await K.deriverOctets(nouveau, kdf.sel, kdf.iterations);
+  cle = await K.importerCle(cleBrute);
+  supprimerCode(); // l'ancien code protégeait l'ancienne clé : à recréer
   await enregistrer();
   const rechiffrees = await Promise.all(copies.map(async ({ le, raison, contenu }) => ({ le, raison, ...(await K.chiffrer(cle, contenu)) })));
   localStorage.setItem(CLE_COPIES, JSON.stringify(rechiffrees));
@@ -100,7 +160,7 @@ export async function changerMotDePasse(ancien, nouveau) {
 
 // Efface tout sur cet appareil (mot de passe oublié). Les fichiers de sauvegarde restent utilisables.
 export function toutEffacer() {
-  [CLE, CLE_COPIES, CLE_CLAIR].forEach((k) => localStorage.removeItem(k));
+  [CLE, CLE_COPIES, CLE_CLAIR, CLE_CODE].forEach((k) => localStorage.removeItem(k));
   verrouiller();
 }
 
