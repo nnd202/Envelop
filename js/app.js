@@ -3,7 +3,6 @@
 import * as C from './calc.js';
 import * as S from './store.js';
 import * as BA from './bascule.js';
-import * as EX from './export.js';
 import { vueStats, vueStatsEnveloppe } from './stats.js';
 
 const app = document.getElementById('app');
@@ -767,7 +766,7 @@ function fenetreBascule(b) {
       fermer();
       aller(`#/b/${b.id}`);
       route();
-      toast(`Bienvenue en ${nomMois(p.suivant).toLowerCase()} !`);
+      proposerExportMensuel(p.suivant);
     });
   });
 }
@@ -807,7 +806,7 @@ function vueAcces() {
       <p>${migration ? 'Tes données vont être chiffrées sur cet appareil.' : 'Tes données seront chiffrées sur cet appareil.'} Personne ne peut les lire sans ce mot de passe, pas même Envelop.</p>
       <label class="champ"><span>Mot de passe (8 caractères minimum)</span><input name="mdp" type="password" autocomplete="new-password" minlength="8" required></label>
       <label class="champ"><span>Confirmation</span><input name="mdp2" type="password" autocomplete="new-password" minlength="8" required></label>
-      <label class="coche"><input type="checkbox" name="ok" required> J'ai rangé ce mot de passe dans mon gestionnaire. Sans lui, mes données et mes sauvegardes sont perdues.</label>
+      <label class="coche"><input type="checkbox" name="ok" required> J'ai rangé ce mot de passe dans mon gestionnaire. Sans lui (ou mon code), je ne pourrai plus ouvrir Envelop sur cet appareil : seul mon dernier export me permettrait de tout récupérer.</label>
       <p class="message-erreur" data-erreur hidden></p>
       <button class="btn btn-principal btn-large">Créer et chiffrer</button>
     </form>`;
@@ -857,7 +856,7 @@ app.addEventListener('click', async (ev) => {
   if (acces !== 'oubli') return;
   ouvrir(`<h2>Mot de passe oublié</h2>
     <p>Il n'existe aucun moyen de retrouver tes données sans ton mot de passe : elles sont chiffrées, et rien n'est envoyé nulle part.</p>
-    <p>Tu peux tout effacer sur cet appareil et repartir de zéro, puis restaurer une sauvegarde avec le mot de passe qui la protégeait.</p>
+    <p>Tu peux tout effacer sur cet appareil et repartir de zéro, puis restaurer ton dernier export (Réglages, « Restaurer depuis un export »).</p>
     <label class="champ"><span>Pour confirmer, tape EFFACER</span><input name="conf" autocomplete="off"></label>
     <div class="actions"><button class="btn btn-second" data-r="0">Annuler</button><button class="btn btn-danger" data-r="1">Tout effacer</button></div>`, (f) => {
     f.addEventListener('click', (e) => {
@@ -962,7 +961,7 @@ function fenetreCode() {
         }
         await S.definirCode(c);
         fermer();
-        toast('Code enregistré. Ton mot de passe reste valable, et protège toujours tes sauvegardes.');
+        toast('Code enregistré. Ton mot de passe reste valable en secours.');
         if (location.hash === '#/reglages') route();
         return null;
       },
@@ -974,7 +973,7 @@ function fenetreCode() {
 function proposerCode() {
   if (S.statut() !== 'ouvert' || S.aCode()) return;
   ouvrir(`<h2>Un code à 6 chiffres ?</h2>
-    <p>Comme dans une appli bancaire : un pavé numérique dont les chiffres changent de place. Ton mot de passe reste valable, et c'est toujours lui qui protège tes sauvegardes.</p>
+    <p>Comme dans une appli bancaire : un pavé numérique dont les chiffres changent de place. Ton mot de passe reste valable en secours.</p>
     <div class="actions"><button class="btn btn-second" data-r="0">Plus tard</button><button class="btn btn-principal" data-r="1">Créer mon code</button></div>`, (f) => {
     f.addEventListener('click', (e) => {
       const r = e.target.closest('[data-r]')?.dataset.r;
@@ -1008,9 +1007,9 @@ function rappelSauvegarde() {
   if (r.rappelApres && new Date(r.rappelApres) > new Date()) return '';
   const j = joursDepuis(r.derniereSauvegarde);
   if (j !== null && j < r.rappelJours) return '';
-  const texte = j === null ? 'Aucune sauvegarde pour l\'instant.' : `Dernière sauvegarde ${ilYA(j)}.`;
+  const texte = j === null ? 'Aucun export de tes données pour l\'instant.' : `Dernier export de tes données ${ilYA(j)}.`;
   return `<div class="bandeau bandeau-action">${texte}
-    <div class="actions" style="margin:0"><button class="btn btn-second" data-action="plus-tard">Plus tard</button><button class="btn btn-principal" data-action="sauvegarder">Sauvegarder</button></div></div>`;
+    <div class="actions" style="margin:0"><button class="btn btn-second" data-action="plus-tard">Plus tard</button><button class="btn btn-principal" data-action="sauvegarder">📦 Exporter</button></div></div>`;
 }
 
 // Menu de partage du téléphone (Proton Drive, Drive…) ; téléchargement si refusé ou indisponible.
@@ -1038,13 +1037,13 @@ async function partager(fichiers, titre) {
 
 async function sauvegarder() {
   try {
-    const fichier = new File([await S.texteSauvegarde()], S.nomSauvegarde(), { type: 'text/plain' });
-    if (!(await partager([fichier], 'Sauvegarde Envelop'))) return;
+    const fichier = new File([S.texteExport()], S.nomSauvegarde(), { type: 'text/plain' });
+    if (!(await partager([fichier], 'Export Envelop'))) return;
     S.noterSauvegarde();
-    toast('Sauvegarde créée. Elle est chiffrée avec ton mot de passe.');
+    toast('Export créé : toutes tes données, dans un seul fichier.');
     route();
   } catch (e) {
-    alerte(`La sauvegarde n'a pas pu être faite : ${esc(e?.message || e)}`);
+    alerte(`L'export n'a pas pu être fait : ${esc(e?.message || e)}`);
   }
 }
 
@@ -1084,14 +1083,14 @@ async function restaurerDepuisFichier() {
     lu = await S.lireSauvegarde(texte);
   } catch (e) {
     if (!(e instanceof S.MotDePasseRequis)) return alerte(esc(e.message));
-    const mdp = await demanderMotDePasse('Mot de passe du fichier', 'Cette sauvegarde a été faite avec un autre mot de passe. Saisis celui qui la protégeait.');
+    const mdp = await demanderMotDePasse('Mot de passe du fichier', 'Cette ancienne sauvegarde chiffrée a été faite avec un autre mot de passe. Saisis celui qui la protégeait.');
     if (mdp == null) return;
     try { lu = await S.lireSauvegarde(texte, mdp); } catch (e2) { return alerte(esc(e2.message)); }
   }
   const actuelles = new Set(S.bases().map((b) => b.id));
   const liste = lu.contenu.bases.map((b) => `<li>${esc(b.icone)} ${esc(b.nom)} · ${b.mois.length} mois${actuelles.has(b.id) ? ' <span class="badge">déjà sur l\'appareil</span>' : ''}</li>`).join('');
   const date = lu.le ? new Date(lu.le).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' }) : 'date inconnue';
-  ouvrir(`<h2>Restaurer une sauvegarde</h2>
+  ouvrir(`<h2>Restaurer depuis un export</h2>
     <p>Sauvegarde du ${date}, ${lu.contenu.bases.length} base${lu.contenu.bases.length > 1 ? 's' : ''} :</p>
     <ul class="liste-simple">${liste || '<li>Aucune base</li>'}</ul>
     <p class="aide">Une copie de tes données actuelles est faite avant, pour pouvoir revenir en arrière.</p>
@@ -1107,7 +1106,7 @@ async function restaurerDepuisFichier() {
       fermer();
       aller('#/');
       route();
-      toast(r === 'remplacer' ? 'Données remplacées par la sauvegarde.' : `${res.ajoutees.length} base(s) ajoutée(s), ${res.ignorees.length} déjà présente(s).`, () => S.restaurerCopie(0).then(route));
+      toast(r === 'remplacer' ? 'Données remplacées par celles de l\'export.' : `${res.ajoutees.length} base(s) ajoutée(s), ${res.ignorees.length} déjà présente(s).`, () => S.restaurerCopie(0).then(route));
     });
   });
 }
@@ -1128,12 +1127,10 @@ async function vueReglages() {
   }[dossier.etat] || '';
   app.innerHTML = `
     <header class="entete"><a class="btn-icone" href="#/" aria-label="Retour">${ICONES.retour}</a><h1><span class="sur-titre">Envelop</span>Réglages</h1></header>
-    <section class="carte"><h2 class="carte-titre">Sauvegarde</h2><div class="liste">
-      <button class="ligne" data-action="sauvegarder"><span class="ligne-corps"><div class="ligne-nom">Sauvegarder maintenant</div><div class="ligne-detail">${j === null ? 'Jamais sauvegardé' : `Dernière : ${ilYA(j)}`} · fichier chiffré</div></span><span class="chevron">${ICONES.chevron}</span></button>
-      <button class="ligne" data-reg="restaurer"><span class="ligne-corps"><div class="ligne-nom">Restaurer une sauvegarde</div><div class="ligne-detail">Ajouter des bases ou tout remplacer</div></span><span class="chevron">${ICONES.chevron}</span></button>
+    <section class="carte"><h2 class="carte-titre">Export</h2><div class="liste">
+      <button class="ligne" data-action="sauvegarder"><span class="ligne-corps"><div class="ligne-nom">📦 Exporter toutes mes données</div><div class="ligne-detail">${j === null ? 'Jamais exporté' : `Dernier export : ${ilYA(j)}`} · un seul fichier, complet et lisible</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      <button class="ligne" data-reg="restaurer"><span class="ligne-corps"><div class="ligne-nom">Restaurer depuis un export</div><div class="ligne-detail">Ajouter des bases ou tout remplacer</div></span><span class="chevron">${ICONES.chevron}</span></button>
       ${ligneDossier}
-      <button class="ligne" data-reg="lecteur"><span class="ligne-corps"><div class="ligne-nom">Lecteur de sauvegarde</div><div class="ligne-detail">Page autonome pour ouvrir tes sauvegardes sans l'appli · à garder avec elles</div></span><span class="chevron">${ICONES.chevron}</span></button>
-      <button class="ligne" data-reg="csv"><span class="ligne-corps"><div class="ligne-nom">Export lisible (CSV)</div><div class="ligne-detail">Opérations et synthèse pour tableur · non chiffré</div></span><span class="chevron">${ICONES.chevron}</span></button>
       <label class="ligne"><span class="ligne-corps"><div class="ligne-nom">Rappel</div></span>
         <select data-reg-rappel class="select-court">${[0, 3, 7, 14, 30].map((n) => `<option value="${n}" ${n === r.rappelJours ? 'selected' : ''}>${n ? `tous les ${n} jours` : 'jamais'}</option>`).join('')}</select></label>
     </div></section>
@@ -1143,7 +1140,7 @@ async function vueReglages() {
     <section class="carte"><h2 class="carte-titre">Sécurité</h2><div class="liste">
       <button class="ligne" data-reg="code"><span class="ligne-corps"><div class="ligne-nom">${S.aCode() ? 'Changer le code à 6 chiffres' : 'Créer un code à 6 chiffres'}</div><div class="ligne-detail">Pavé numérique mélangé pour déverrouiller cet appareil</div></span><span class="chevron">${ICONES.chevron}</span></button>
       ${S.aCode() ? '<button class="ligne" data-reg="sans-code"><span class="ligne-corps"><div class="ligne-nom">Supprimer le code</div><div class="ligne-detail">Le mot de passe sera de nouveau demandé</div></span></button>' : ''}
-      <button class="ligne" data-reg="mdp"><span class="ligne-corps"><div class="ligne-nom">Changer le mot de passe</div><div class="ligne-detail">Les anciennes sauvegardes gardent l'ancien mot de passe</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      <button class="ligne" data-reg="mdp"><span class="ligne-corps"><div class="ligne-nom">Changer le mot de passe</div><div class="ligne-detail">Pour déverrouiller l'appli sur cet appareil</div></span><span class="chevron">${ICONES.chevron}</span></button>
       <button class="ligne" data-reg="verrouiller"><span class="ligne-corps"><div class="ligne-nom">Verrouiller maintenant</div><div class="ligne-detail">Verrouillage automatique après 5 minutes en arrière-plan</div></span></button>
     </div></section>`;
 }
@@ -1179,23 +1176,6 @@ app.addEventListener('click', async (ev) => {
       if (await confirmer({ titre: 'Supprimer le code ?', texte: 'Envelop demandera de nouveau ton mot de passe pour se déverrouiller.', bouton: 'Supprimer', danger: false })) { S.supprimerCode(); route(); }
       return;
     }
-    if (a === 'lecteur') {
-      const html = await (await fetch('lecteur.html')).text();
-      if (await partager([new File([html], 'envelop-lecteur.html', { type: 'text/html' })], 'Lecteur de sauvegarde Envelop')) toast('Lecteur enregistré. Range-le à côté de tes sauvegardes.');
-      return;
-    }
-    if (a === 'csv') {
-      const ok = await confirmer({ titre: 'Export lisible', texte: 'Deux fichiers CSV (opérations et synthèse mensuelle) que n\'importe quel tableur ouvre. Ils ne sont pas chiffrés : range-les dans un endroit protégé, comme ton Proton Drive.', bouton: 'Exporter', danger: false });
-      if (!ok) return;
-      const d = new Date();
-      const h = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-      const etat = { bases: S.bases() };
-      await partager([
-        new File([EX.csvOperations(etat)], `${h} - Export Envelop - opérations.csv`, { type: 'text/csv' }),
-        new File([EX.csvSynthese(etat)], `${h} - Export Envelop - synthèse.csv`, { type: 'text/csv' }),
-      ], 'Export Envelop');
-      return;
-    }
   } catch (e) {
     if (e?.name !== 'AbortError') alerte(esc(e?.message || e));
   }
@@ -1218,7 +1198,7 @@ function fenetreMotDePasse() {
       if (v('n') !== v('n2')) { err.textContent = 'Les deux nouveaux mots de passe diffèrent.'; err.hidden = false; return; }
       if (!(await S.changerMotDePasse(v('a'), v('n')))) { err.textContent = 'Mot de passe actuel incorrect.'; err.hidden = false; return; }
       fermer();
-      toast('Mot de passe changé : recrée ton code à 6 chiffres, et fais une nouvelle sauvegarde.');
+      toast('Mot de passe changé : recrée ton code à 6 chiffres.');
       route();
     });
   });
@@ -1250,6 +1230,20 @@ async function demarrerCorrection(b, m) {
   if (!ok) return;
   await S.commencerCorrection(b, m, `Avant correction de ${nomMois(m).toLowerCase()}`);
   route();
+}
+
+// Juste après la bascule : un export complet, pour démarrer chaque mois avec une sauvegarde.
+// (Le partage doit partir d'un toucher : d'où cette fenêtre avec son bouton.)
+function proposerExportMensuel(mois) {
+  ouvrir(`<h2>Bienvenue en ${nomMois(mois).toLowerCase()} !</h2>
+    <p>C'est le bon moment pour exporter toutes tes données. Choisis Proton Drive dans le menu de partage, et ton début de mois est sauvegardé.</p>
+    <div class="actions"><button class="btn btn-second" data-r="0">Plus tard</button><button class="btn btn-principal" data-r="1">📦 Exporter</button></div>`, (f) => {
+    f.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-r]')?.dataset.r;
+      if (r === '0') fermer();
+      if (r === '1') { fermer(); sauvegarder(); }
+    });
+  });
 }
 
 function fenetreFinCorrection(b) {

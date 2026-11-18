@@ -207,13 +207,20 @@ function horodatage(d = new Date()) {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// L'export : un seul fichier, complet et lisible (JSON, non chiffré). Il contient tout :
+// bases, mois, enveloppes, plafonds, opérations, virements, contrôles du stock, réglages.
 // Extension .txt : Android n'accepte pas le partage de fichiers .json (« Permission denied »).
-// Le contenu reste le même fichier chiffré ; l'import accepte .txt et .json.
 export const nomSauvegarde = () => `${horodatage()} - Export Envelop.txt`;
 
-export async function texteSauvegarde() {
-  const c = await K.chiffrer(cle, etat);
-  return JSON.stringify({ format: 'envelop-sauvegarde', version: 2, kdf, le: new Date().toISOString(), ...c });
+export function texteExport() {
+  return JSON.stringify({
+    format: 'envelop-export',
+    version: 3,
+    application: 'Envelop · https://nnd202.github.io/envelop/',
+    le: new Date().toISOString(),
+    bases: etat.bases,
+    reglages: { rappelJours: etat.reglages.rappelJours },
+  }, null, 2);
 }
 
 export function noterSauvegarde() {
@@ -222,10 +229,14 @@ export function noterSauvegarde() {
 
 export class MotDePasseRequis extends Error {}
 
-// Renvoie { contenu, le } ; lève MotDePasseRequis si le fichier a un autre mot de passe.
+// Renvoie { contenu, le }. Accepte l'export lisible, et les anciennes sauvegardes chiffrées
+// (lève MotDePasseRequis si l'une d'elles a été faite avec un autre mot de passe).
 export async function lireSauvegarde(texte, motDePasse) {
   let obj;
   try { obj = JSON.parse(texte); } catch { throw new Error('Ce fichier n\'est pas une sauvegarde Envelop.'); }
+  if (obj?.format === 'envelop-export' && Array.isArray(obj.bases)) {
+    return { contenu: normaliser({ bases: obj.bases }), le: obj.le };
+  }
   if (!obj || !String(obj.format).startsWith('envelop') || !obj.kdf || !obj.donnees) throw new Error('Ce fichier n\'est pas une sauvegarde Envelop.');
   let k;
   if (obj.kdf.sel === kdf.sel) k = cle;
@@ -304,7 +315,7 @@ async function ecrireDossier() {
   if (!h || (await h.queryPermission({ mode: 'readwrite' })) !== 'granted') return false;
   const fichier = await h.getFileHandle(nomSauvegarde(), { create: true });
   const w = await fichier.createWritable();
-  await w.write(await texteSauvegarde());
+  await w.write(texteExport());
   await w.close();
   etat.reglages.derniereSauvegarde = new Date().toISOString();
   etat.reglages.rappelApres = null;

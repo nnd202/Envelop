@@ -15,7 +15,7 @@ Web app personnelle de budget par enveloppes : on saisit les dépenses, l'appli 
 
 ## Données
 
-Aucune donnée n'est envoyée nulle part : tout reste dans le navigateur de l'appareil, chiffré avec le mot de passe de l'utilisateur. Les fichiers de sauvegarde sont chiffrés de la même façon. Le dépôt ne contient que le code et une base de démonstration inventée.
+Aucune donnée n'est envoyée nulle part : tout reste dans le navigateur de l'appareil, chiffré avec le mot de passe de l'utilisateur (ou débloqué par un code à 6 chiffres). L'export, lui, est un fichier lisible et non chiffré : à ranger dans un stockage protégé (par exemple Proton Drive, chiffré de bout en bout). Le dépôt ne contient que le code et une base de démonstration inventée.
 
 ## Développement
 
@@ -24,13 +24,13 @@ JavaScript simple, sans framework ni compilation.
 - `js/calc.js` : moteur de calcul (montants en centimes, tout est recalculé à partir des saisies).
 - `js/store.js` : stockage local et modifications.
 - `js/app.js` : interface ; `js/stats.js` : statistiques et graphiques.
-- `js/bascule.js` : bascule de mois ; `js/crypto.js` : chiffrement ; `js/export.js` : CSV.
-- `lecteur.html` : généré par `node tools/build-lecteur.mjs`, ouvre une sauvegarde sans l'appli.
-- `node tools/check.mjs` : vérifie la liste des fichiers hors ligne (`sw.js`), que `lecteur.html` est à jour, et lance tous les tests.
+- `js/bascule.js` : bascule de mois ; `js/crypto.js` : chiffrement.
+- `node tools/check.mjs` : vérifie la liste des fichiers hors ligne (`sw.js`) et lance tous les tests.
 
 ## Avancement
 
 1. ✅ Cœur : stock de départ, enveloppes et Surplus automatique, plafonds bloqués par les revenus, dépenses, entrées et virements, synthèse prévisionnel / réel / stock.
 2. ✅ Bascule de mois : contrôle du stock réel, écart inscrit dans le Surplus, report des récurrentes, mois passés en lecture seule, historique, annulation de la dernière bascule.
-3. ✅ Chiffrement par mot de passe (PBKDF2 + AES-GCM), verrouillage auto, sauvegarde chiffrée (partage ou dossier sur PC), rappel, restauration, copies automatiques, mode correction des mois passés.
-4. ✅ Statistiques par base et par enveloppe, graphiques ; export lisible CSV ; lecteur de sauvegarde autonome (`lecteur.html`).
+3. ✅ Chiffrement par mot de passe (PBKDF2 + AES-GCM), verrouillage auto, code à 6 chiffres, rappel d'export, restauration, copies automatiques, mode correction des mois passés.
+4. ✅ Statistiques par base et par enveloppe, graphiques.
+5. ✅ Un seul export : toutes les données dans un fichier JSON lisible (`AAAAMMJJ - Export Envelop.txt`), proposé après chaque bascule de mois et disponible à tout moment.
