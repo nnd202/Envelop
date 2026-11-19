@@ -24,7 +24,7 @@ JavaScript simple, sans framework ni compilation.
 - `js/calc.js` : moteur de calcul (montants en centimes, tout est recalculé à partir des saisies).
 - `js/store.js` : stockage local et modifications.
 - `js/app.js` : interface ; `js/stats.js` : statistiques et graphiques.
-- `js/bascule.js` : bascule de mois ; `js/crypto.js` : chiffrement.
+- `js/bascule.js` : bascule de mois ; `js/crypto.js` : empreinte du code de verrouillage et lecture des anciennes sauvegardes chiffrées.
 - `node tools/check.mjs` : vérifie la liste des fichiers hors ligne (`sw.js`) et lance tous les tests.
 
 ## Avancement
