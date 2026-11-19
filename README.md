@@ -15,7 +15,7 @@ Web app personnelle de budget par enveloppes : on saisit les dépenses, l'appli 
 
 ## Données
 
-Aucune donnée n'est envoyée nulle part : tout reste dans le navigateur de l'appareil, chiffré avec le mot de passe de l'utilisateur (ou débloqué par un code à 6 chiffres). L'export, lui, est un fichier lisible et non chiffré : à ranger dans un stockage protégé (par exemple Proton Drive, chiffré de bout en bout). Le dépôt ne contient que le code et une base de démonstration inventée.
+Aucune donnée n'est envoyée nulle part : tout reste dans le navigateur de l'appareil, sans chiffrement ; l'ouverture de l'appli est protégée par un code à 6 chiffres (pavé mélangé). L'export, lui, est un fichier lisible et non chiffré : à ranger dans un stockage protégé (par exemple Proton Drive, chiffré de bout en bout). Le dépôt ne contient que le code et une base de démonstration inventée.
 
 ## Développement
 
@@ -31,6 +31,6 @@ JavaScript simple, sans framework ni compilation.
 
 1. ✅ Cœur : stock de départ, enveloppes et Surplus automatique, plafonds bloqués par les revenus, dépenses, entrées et virements, synthèse prévisionnel / réel / stock.
 2. ✅ Bascule de mois : contrôle du stock réel, écart inscrit dans le Surplus, report des récurrentes, mois passés en lecture seule, historique, annulation de la dernière bascule.
-3. ✅ Chiffrement par mot de passe (PBKDF2 + AES-GCM), verrouillage auto, code à 6 chiffres, rappel d'export, restauration, copies automatiques, mode correction des mois passés.
+3. ✅ Écran de verrouillage par code à 6 chiffres (aucun mot de passe, aucun chiffrement), verrouillage auto, rappel d'export, restauration, copies automatiques, mode correction des mois passés.
 4. ✅ Statistiques par base et par enveloppe, graphiques.
 5. ✅ Un seul export : toutes les données dans un fichier JSON lisible (`AAAAMMJJ - Export Envelop.txt`), proposé après chaque bascule de mois et disponible à tout moment.

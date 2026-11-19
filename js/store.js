@@ -1,31 +1,31 @@
-// Stockage d'Envelop : uniquement dans le navigateur de l'appareil, chiffré par mot de passe.
-// Les données en clair n'existent qu'en mémoire, le temps que l'appli est déverrouillée.
+// Stockage d'Envelop : dans le navigateur de l'appareil, en clair (aucun chiffrement).
+// L'accès à l'appli est protégé par un code à 6 chiffres (écran de verrouillage).
+// Ce code protège contre quelqu'un qui ouvre l'appli, pas contre quelqu'un qui fouillerait
+// le stockage du navigateur.
 import { moisDe } from './calc.js';
 import * as K from './crypto.js';
 import * as BA from './bascule.js';
 import * as C from './calc.js';
 
-const CLE_CLAIR = 'envelop:v1'; // ancien format en clair (étapes 1 et 2), migré puis effacé
-const CLE = 'envelop:v2';
-const CLE_COPIES = 'envelop:v2:copies';
-const CLE_CODE = 'envelop:v2:code'; // clé des données protégée par le code à 6 chiffres
-const CODE_ITERATIONS = 600000;
-const CODE_ESSAIS = 5;
+const CLE = 'envelop:v3';
+const CLE_VERROU = 'envelop:v3:verrou';
+const CLE_COPIES = 'envelop:v3:copies';
+// Anciens formats, migrés au premier déverrouillage puis effacés.
+const ANCIENNES = { clair: 'envelop:v1', chiffre: 'envelop:v2', copies: 'envelop:v2:copies', code: 'envelop:v2:code' };
+const VERROU_ITERATIONS = 100000;
+const ESSAIS_AVANT_PAUSE = 5;
 const MAX_COPIES = 5;
 
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
-let etat = null; // données déchiffrées
-let cle = null; // CryptoKey, en mémoire seulement
-let cleBrute = null; // mêmes octets, pour pouvoir créer le code à 6 chiffres
-let kdf = null; // { sel, iterations }
-let ecriture = Promise.resolve();
+let etat = null; // données, en mémoire tant que l'appli est déverrouillée
+let ouvert = false;
 let minuterieDossier = null;
 
 const REGLAGES = { rappelJours: 7, derniereSauvegarde: null, rappelApres: null };
 
 function normaliser(e) {
-  e.version = 2;
+  e.version = 3;
   e.bases = e.bases || [];
   e.reglages = { ...REGLAGES, ...(e.reglages || {}) };
   for (const b of e.bases) assurerSurplus(b);
@@ -38,129 +38,118 @@ function assurerSurplus(b) {
   b.enveloppes.push({ id: uid(), special: 'surplus', nom: 'Surplus', icone: '🫙', ordre: b.enveloppes.length, creeeLe: b.mois[0], noisetteDepart: 0, flechee: false });
 }
 
-// 'ouvert' | 'verrouille' | 'clair' (données à protéger) | 'nouveau'
+const lire = (cle) => { try { return JSON.parse(localStorage.getItem(cle)); } catch { return null; } };
+
+// 'ouvert' | 'verrouille' (code à taper) | 'migration' (ancien format chiffré à ouvrir une dernière fois)
+// | 'nouveau' (aucun code : en créer un)
 export function statut() {
-  if (etat) return 'ouvert';
-  if (localStorage.getItem(CLE)) return 'verrouille';
-  if (localStorage.getItem(CLE_CLAIR)) return 'clair';
+  if (ouvert && etat) return 'ouvert';
+  if (localStorage.getItem(ANCIENNES.chiffre)) return 'migration';
+  if (localStorage.getItem(CLE_VERROU)) return 'verrouille';
   return 'nouveau';
 }
 
 function enregistrer() {
-  const instantane = JSON.parse(JSON.stringify(etat));
-  const k = cle;
-  const params = kdf;
-  ecriture = ecriture.then(async () => {
-    const c = await K.chiffrer(k, instantane);
-    localStorage.setItem(CLE, JSON.stringify({ format: 'envelop', version: 2, kdf: params, le: new Date().toISOString(), ...c }));
-  });
+  localStorage.setItem(CLE, JSON.stringify(etat));
   programmerDossier();
-  return ecriture;
 }
 
-export const attendreEcriture = () => ecriture;
+export const attendreEcriture = () => Promise.resolve();
 
-export async function creerMotDePasse(motDePasse) {
-  kdf = { sel: K.nouveauSel(), iterations: K.ITERATIONS };
-  cleBrute = await K.deriverOctets(motDePasse, kdf.sel, kdf.iterations);
-  cle = await K.importerCle(cleBrute);
-  let depart = { bases: [] };
-  try { depart = JSON.parse(localStorage.getItem(CLE_CLAIR)) || depart; } catch { /* rien à migrer */ }
-  etat = normaliser(depart);
-  await enregistrer();
-  localStorage.removeItem(CLE_CLAIR);
+function chargerClair() {
+  etat = normaliser(lire(CLE) || lire(ANCIENNES.clair) || { bases: [] });
+  localStorage.removeItem(ANCIENNES.clair);
+  enregistrer();
 }
 
-export async function deverrouiller(motDePasse) {
-  const stocke = JSON.parse(localStorage.getItem(CLE));
-  const octets = await K.deriverOctets(motDePasse, stocke.kdf.sel, stocke.kdf.iterations);
-  const k = await K.importerCle(octets);
-  try {
-    etat = normaliser(await K.dechiffrer(k, stocke));
-  } catch {
-    return false;
-  }
-  cle = k;
-  cleBrute = octets;
-  kdf = stocke.kdf;
-  const code = lireCode();
-  if (code?.essais) { code.essais = 0; localStorage.setItem(CLE_CODE, JSON.stringify(code)); }
-  return true;
+// --- Code de verrouillage -------------------------------------------------------------
+
+async function empreinte(code, sel, iterations) {
+  return K.versBase64(await K.deriverOctets(code, sel, iterations));
 }
 
-// --- Code à 6 chiffres -------------------------------------------------------------
-// Sur cet appareil seulement : le code protège la clé des données, que seul le mot de passe
-// permet de retrouver autrement. Les sauvegardes restent chiffrées avec le mot de passe.
-// Après 5 codes faux, le code est effacé et le mot de passe redevient obligatoire.
+export const aCode = () => !!localStorage.getItem(CLE_VERROU);
 
-function lireCode() {
-  try { return JSON.parse(localStorage.getItem(CLE_CODE)); } catch { return null; }
-}
-
-export const aCode = () => !!lireCode();
-export const essaisCode = () => CODE_ESSAIS - (lireCode()?.essais || 0);
-
+// Premier lancement (ou changement de code) : enregistre le code et ouvre l'appli.
 export async function definirCode(code) {
   const sel = K.nouveauSel();
-  const k = await K.deriverCle(code, sel, CODE_ITERATIONS);
-  const c = await K.chiffrer(k, { cle: K.versBase64(cleBrute) });
-  localStorage.setItem(CLE_CODE, JSON.stringify({ sel, iterations: CODE_ITERATIONS, essais: 0, ...c }));
+  localStorage.setItem(CLE_VERROU, JSON.stringify({ sel, iterations: VERROU_ITERATIONS, empreinte: await empreinte(code, sel, VERROU_ITERATIONS), essais: 0, pauseJusqua: 0 }));
+  if (!etat) chargerClair();
+  ouvert = true;
 }
 
-export function supprimerCode() {
-  localStorage.removeItem(CLE_CODE);
-}
-
-// Renvoie { ok } ou { ok: false, restants } ; restants = 0 → code effacé, mot de passe exigé.
+// Renvoie { ok } ou { ok: false, restants, pause } (pause en secondes après trop d'erreurs).
 export async function deverrouillerCode(code) {
-  const enreg = lireCode();
-  if (!enreg) return { ok: false, restants: 0 };
-  const k = await K.deriverCle(code, enreg.sel, enreg.iterations);
-  let octets;
-  try {
-    octets = K.depuisBase64((await K.dechiffrer(k, enreg)).cle);
-  } catch {
-    enreg.essais = (enreg.essais || 0) + 1;
-    if (enreg.essais >= CODE_ESSAIS) { supprimerCode(); return { ok: false, restants: 0 }; }
-    localStorage.setItem(CLE_CODE, JSON.stringify(enreg));
-    return { ok: false, restants: CODE_ESSAIS - enreg.essais };
+  const v = lire(CLE_VERROU);
+  if (!v) return { ok: false, restants: 0, pause: 0 };
+  const attente = Math.ceil(((v.pauseJusqua || 0) - Date.now()) / 1000);
+  if (attente > 0) return { ok: false, restants: 0, pause: attente };
+  if ((await empreinte(code, v.sel, v.iterations)) !== v.empreinte) {
+    v.essais = (v.essais || 0) + 1;
+    let pause = 0;
+    if (v.essais >= ESSAIS_AVANT_PAUSE) {
+      pause = 30 * 2 ** (v.essais - ESSAIS_AVANT_PAUSE); // 30 s, 1 min, 2 min…
+      v.pauseJusqua = Date.now() + pause * 1000;
+    }
+    localStorage.setItem(CLE_VERROU, JSON.stringify(v));
+    return { ok: false, restants: Math.max(0, ESSAIS_AVANT_PAUSE - v.essais), pause };
   }
-  const stocke = JSON.parse(localStorage.getItem(CLE));
-  const kd = await K.importerCle(octets);
-  etat = normaliser(await K.dechiffrer(kd, stocke));
-  cle = kd;
-  cleBrute = octets;
-  kdf = stocke.kdf;
-  enreg.essais = 0;
-  localStorage.setItem(CLE_CODE, JSON.stringify(enreg));
+  v.essais = 0;
+  v.pauseJusqua = 0;
+  localStorage.setItem(CLE_VERROU, JSON.stringify(v));
+  chargerClair();
+  ouvert = true;
   return { ok: true };
 }
 
 export function verrouiller() {
+  ouvert = false;
   etat = null;
-  cle = null;
-  cleBrute = null;
   correction = null;
 }
 
-export async function changerMotDePasse(ancien, nouveau) {
-  const stocke = JSON.parse(localStorage.getItem(CLE));
-  const ancienneCle = await K.deriverCle(ancien, stocke.kdf.sel, stocke.kdf.iterations);
-  try { await K.dechiffrer(ancienneCle, stocke); } catch { return false; }
-  const copies = await Promise.all(listeCopies().map(async (c) => ({ ...c, contenu: await K.dechiffrer(ancienneCle, c) })));
-  kdf = { sel: K.nouveauSel(), iterations: K.ITERATIONS };
-  cleBrute = await K.deriverOctets(nouveau, kdf.sel, kdf.iterations);
-  cle = await K.importerCle(cleBrute);
-  supprimerCode(); // l'ancien code protégeait l'ancienne clé : à recréer
-  await enregistrer();
-  const rechiffrees = await Promise.all(copies.map(async ({ le, raison, contenu }) => ({ le, raison, ...(await K.chiffrer(cle, contenu)) })));
-  localStorage.setItem(CLE_COPIES, JSON.stringify(rechiffrees));
+// --- Migration de l'ancien format chiffré (une seule fois) ------------------------------
+// On l'ouvre avec l'ancien code ou l'ancien mot de passe, puis tout passe en clair.
+
+export const migrationParCode = () => !!localStorage.getItem(ANCIENNES.code);
+
+async function finirMigration(octets) {
+  const stocke = lire(ANCIENNES.chiffre);
+  const donnees = await K.dechiffrer(await K.importerCle(octets), stocke);
+  localStorage.setItem(CLE, JSON.stringify(normaliser(donnees)));
+  [ANCIENNES.chiffre, ANCIENNES.copies, ANCIENNES.code, ANCIENNES.clair].forEach((k) => localStorage.removeItem(k));
+}
+
+// Avec l'ancien code à 6 chiffres : il devient le code de verrouillage.
+export async function migrerAvecCode(code) {
+  const enreg = lire(ANCIENNES.code);
+  try {
+    const k = await K.deriverCle(code, enreg.sel, enreg.iterations);
+    const octets = K.depuisBase64((await K.dechiffrer(k, enreg)).cle);
+    await finirMigration(octets);
+  } catch {
+    return false;
+  }
+  await definirCode(code);
   return true;
 }
 
-// Efface tout sur cet appareil (mot de passe oublié). Les fichiers de sauvegarde restent utilisables.
+// Avec l'ancien mot de passe : il faudra ensuite choisir un code.
+export async function migrerAvecMotDePasse(motDePasse) {
+  const stocke = lire(ANCIENNES.chiffre);
+  try {
+    await finirMigration(await K.deriverOctets(motDePasse, stocke.kdf.sel, stocke.kdf.iterations));
+  } catch {
+    return false;
+  }
+  chargerClair();
+  ouvert = true;
+  return true;
+}
+
+// Code oublié : efface tout sur cet appareil. Les exports restent utilisables.
 export function toutEffacer() {
-  [CLE, CLE_COPIES, CLE_CLAIR, CLE_CODE].forEach((k) => localStorage.removeItem(k));
+  [CLE, CLE_VERROU, CLE_COPIES, ...Object.values(ANCIENNES)].forEach((k) => localStorage.removeItem(k));
   verrouiller();
 }
 
@@ -169,7 +158,7 @@ export const bases = () => etat.bases;
 export const base = (id) => etat.bases.find((b) => b.id === id);
 export const moisCourant = (b) => b.mois[b.mois.length - 1];
 
-// Toute modification passe par ici, puis est chiffrée et enregistrée.
+// Toute modification passe par ici, puis est enregistrée.
 export function modifier(fn) {
   fn(etat);
   enregistrer();
@@ -177,39 +166,37 @@ export function modifier(fn) {
 
 // --- Copies automatiques (avant import, correction, restauration) --------------
 
-function listeCopies() {
-  try { return JSON.parse(localStorage.getItem(CLE_COPIES)) || []; } catch { return []; }
-}
+const listeCopies = () => lire(CLE_COPIES) || [];
 
 export const copies = () => listeCopies().map(({ le, raison }) => ({ le, raison }));
 
 export async function prendreCopie(raison) {
-  const instantane = JSON.parse(JSON.stringify(etat));
-  const c = await K.chiffrer(cle, instantane);
-  const liste = [{ le: new Date().toISOString(), raison, ...c }, ...listeCopies()].slice(0, MAX_COPIES);
-  localStorage.setItem(CLE_COPIES, JSON.stringify(liste));
+  const liste = [{ le: new Date().toISOString(), raison, contenu: JSON.parse(JSON.stringify(etat)) }, ...listeCopies()].slice(0, MAX_COPIES);
+  try {
+    localStorage.setItem(CLE_COPIES, JSON.stringify(liste));
+  } catch {
+    localStorage.setItem(CLE_COPIES, JSON.stringify(liste.slice(0, 2))); // stockage plein : on garde les plus récentes
+  }
 }
 
 export async function restaurerCopie(index) {
   const c = listeCopies()[index];
-  const contenu = await K.dechiffrer(cle, c);
   await prendreCopie('Avant restauration d\'une copie');
   const reg = etat.reglages;
-  etat = normaliser(contenu);
+  etat = normaliser(JSON.parse(JSON.stringify(c.contenu)));
   etat.reglages = reg;
   correction = null;
-  await enregistrer();
+  enregistrer();
 }
 
-// --- Fichier de sauvegarde (chiffré avec le même mot de passe) ------------------
+// --- Export (un seul fichier, complet et lisible) --------------------------------------
 
 function horodatage(d = new Date()) {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// L'export : un seul fichier, complet et lisible (JSON, non chiffré). Il contient tout :
-// bases, mois, enveloppes, plafonds, opérations, virements, contrôles du stock, réglages.
-// Extension .txt : Android n'accepte pas le partage de fichiers .json (« Permission denied »).
+// L'export contient tout : bases, mois, enveloppes, plafonds, opérations, virements,
+// contrôles du stock, réglages. Extension .txt : Android refuse de partager du .json.
 export const nomSauvegarde = () => `${horodatage()} - Export Envelop.txt`;
 
 export function texteExport() {
@@ -230,22 +217,19 @@ export function noterSauvegarde() {
 export class MotDePasseRequis extends Error {}
 
 // Renvoie { contenu, le }. Accepte l'export lisible, et les anciennes sauvegardes chiffrées
-// (lève MotDePasseRequis si l'une d'elles a été faite avec un autre mot de passe).
+// (lève MotDePasseRequis : leur mot de passe d'alors est demandé).
 export async function lireSauvegarde(texte, motDePasse) {
   let obj;
-  try { obj = JSON.parse(texte); } catch { throw new Error('Ce fichier n\'est pas une sauvegarde Envelop.'); }
+  try { obj = JSON.parse(texte); } catch { throw new Error('Ce fichier n\'est pas un export Envelop.'); }
   if (obj?.format === 'envelop-export' && Array.isArray(obj.bases)) {
     return { contenu: normaliser({ bases: obj.bases }), le: obj.le };
   }
-  if (!obj || !String(obj.format).startsWith('envelop') || !obj.kdf || !obj.donnees) throw new Error('Ce fichier n\'est pas une sauvegarde Envelop.');
-  let k;
-  if (obj.kdf.sel === kdf.sel) k = cle;
-  else if (!motDePasse) throw new MotDePasseRequis();
-  else k = await K.deriverCle(motDePasse, obj.kdf.sel, obj.kdf.iterations);
+  if (!obj || !String(obj.format).startsWith('envelop') || !obj.kdf || !obj.donnees) throw new Error('Ce fichier n\'est pas un export Envelop.');
+  if (!motDePasse) throw new MotDePasseRequis();
   try {
+    const k = await K.deriverCle(motDePasse, obj.kdf.sel, obj.kdf.iterations);
     return { contenu: normaliser(await K.dechiffrer(k, obj)), le: obj.le };
   } catch {
-    if (k === cle) throw new MotDePasseRequis();
     throw new Error('Mot de passe incorrect pour ce fichier.');
   }
 }
@@ -253,7 +237,7 @@ export async function lireSauvegarde(texte, motDePasse) {
 // mode 'remplacer' : toutes les bases du fichier remplacent les bases actuelles.
 // mode 'ajouter' : seules les bases absentes de l'appareil sont ajoutées, rien n'est écrasé.
 export async function restaurer(contenu, mode) {
-  await prendreCopie(mode === 'remplacer' ? 'Avant remplacement par une sauvegarde' : 'Avant ajout depuis une sauvegarde');
+  await prendreCopie(mode === 'remplacer' ? 'Avant remplacement par un export' : 'Avant ajout depuis un export');
   const ids = new Set(etat.bases.map((b) => b.id));
   const ajoutees = contenu.bases.filter((b) => mode === 'remplacer' || !ids.has(b.id));
   const ignorees = mode === 'remplacer' ? [] : contenu.bases.filter((b) => ids.has(b.id));
@@ -319,17 +303,12 @@ async function ecrireDossier() {
   await w.close();
   etat.reglages.derniereSauvegarde = new Date().toISOString();
   etat.reglages.rappelApres = null;
-  await enregistrerSansDossier();
+  enregistrerSansDossier();
   return true;
 }
 
 function enregistrerSansDossier() {
-  const instantane = JSON.parse(JSON.stringify(etat));
-  ecriture = ecriture.then(async () => {
-    const c = await K.chiffrer(cle, instantane);
-    localStorage.setItem(CLE, JSON.stringify({ format: 'envelop', version: 2, kdf, le: new Date().toISOString(), ...c }));
-  });
-  return ecriture;
+  localStorage.setItem(CLE, JSON.stringify(etat));
 }
 
 function programmerDossier() {

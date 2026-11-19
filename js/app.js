@@ -114,7 +114,7 @@ function vueAccueil() {
       <button class="ajouter" data-action="nouvelle-base">${ICONES.plus} Nouvelle base</button></div>
     </section>
     ${aDemo ? '' : '<button class="btn btn-second btn-large" data-action="demo">Essayer avec une base de démo</button>'}
-    <p class="aide sur-fond" style="margin-top:16px;text-align:center">Tes données restent sur cet appareil, chiffrées par ton mot de passe.</p>`;
+    <p class="aide sur-fond" style="margin-top:16px;text-align:center">Tes données restent sur ce téléphone. Pense à les exporter chaque mois.</p>`;
 }
 
 // --- Vue : mois en cours --------------------------------------------------------
@@ -777,103 +777,19 @@ function alerte(texte) {
   });
 }
 
-// --- Accès : création du mot de passe, déverrouillage ---------------------------
+// --- Accès : code de verrouillage, migration de l'ancien format ------------------
 
 function vueAcces() {
   const st = S.statut();
   document.querySelector('.toast')?.remove();
   document.body.classList.remove('fige');
   couche.hidden = true;
-  if (st === 'verrouille' && S.aCode() && !parMotDePasse) return vueCode();
-  if (st === 'verrouille') {
-    app.innerHTML = `
-      <header class="entete"><h1><span class="sur-titre">Envelop</span>Déverrouiller</h1></header>
-      <form class="carte acces" data-form="deverrouiller">
-        <div class="cadenas">🔒</div>
-        <label class="champ"><span>Mot de passe</span><input name="mdp" type="password" autocomplete="current-password" required></label>
-        <p class="message-erreur" data-erreur hidden>Mot de passe incorrect.</p>
-        <button class="btn btn-principal btn-large">Déverrouiller</button>
-        ${S.aCode() ? '<button type="button" class="lien" data-action-acces="code">Utiliser mon code à 6 chiffres</button>' : ''}
-        <button type="button" class="lien" data-action-acces="oubli">Mot de passe oublié ?</button>
-      </form>`;
-    setTimeout(() => app.querySelector('[name=mdp]')?.focus(), 80);
-    return;
-  }
-  const migration = st === 'clair';
-  app.innerHTML = `
-    <header class="entete"><h1><span class="sur-titre">Envelop</span>Protège tes données</h1></header>
-    <form class="carte acces" data-form="creer">
-      <p>${migration ? 'Tes données vont être chiffrées sur cet appareil.' : 'Tes données seront chiffrées sur cet appareil.'} Personne ne peut les lire sans ce mot de passe, pas même Envelop.</p>
-      <label class="champ"><span>Mot de passe (8 caractères minimum)</span><input name="mdp" type="password" autocomplete="new-password" minlength="8" required></label>
-      <label class="champ"><span>Confirmation</span><input name="mdp2" type="password" autocomplete="new-password" minlength="8" required></label>
-      <label class="coche"><input type="checkbox" name="ok" required> J'ai rangé ce mot de passe dans mon gestionnaire. Sans lui (ou mon code), je ne pourrai plus ouvrir Envelop sur cet appareil : seul mon dernier export me permettrait de tout récupérer.</label>
-      <p class="message-erreur" data-erreur hidden></p>
-      <button class="btn btn-principal btn-large">Créer et chiffrer</button>
-    </form>`;
+  if (st === 'migration') return vueMigration();
+  if (st === 'verrouille') return vueCode();
+  return vueNouveauCode();
 }
 
-app.addEventListener('submit', async (ev) => {
-  const form = ev.target.closest('[data-form]');
-  if (!form) return;
-  ev.preventDefault();
-  const erreur = form.querySelector('[data-erreur]');
-  const bouton = form.querySelector('.btn-principal');
-  const mdp = form.querySelector('[name=mdp]').value;
-  bouton.disabled = true;
-  if (form.dataset.form === 'deverrouiller') {
-    bouton.textContent = 'Vérification…';
-    const ok = await S.deverrouiller(mdp);
-    if (ok) {
-      parMotDePasse = false;
-      route();
-      if (!S.aCode()) setTimeout(() => proposerCode(), 400);
-      return;
-    }
-    erreur.hidden = false;
-    bouton.disabled = false;
-    bouton.textContent = 'Déverrouiller';
-    return;
-  }
-  if (form.dataset.form === 'creer') {
-    const mdp2 = form.querySelector('[name=mdp2]').value;
-    if (mdp !== mdp2) {
-      erreur.textContent = 'Les deux mots de passe ne sont pas identiques.';
-      erreur.hidden = false;
-      bouton.disabled = false;
-      return;
-    }
-    bouton.textContent = 'Chiffrement…';
-    await S.creerMotDePasse(mdp);
-    route();
-    setTimeout(() => proposerCode(), 400);
-  }
-});
-
-app.addEventListener('click', async (ev) => {
-  const acces = ev.target.closest('[data-action-acces]')?.dataset.actionAcces;
-  if (acces === 'mot-de-passe') { parMotDePasse = true; return route(); }
-  if (acces === 'code') { parMotDePasse = false; return route(); }
-  if (acces !== 'oubli') return;
-  ouvrir(`<h2>Mot de passe oublié</h2>
-    <p>Il n'existe aucun moyen de retrouver tes données sans ton mot de passe : elles sont chiffrées, et rien n'est envoyé nulle part.</p>
-    <p>Tu peux tout effacer sur cet appareil et repartir de zéro, puis restaurer ton dernier export (Réglages, « Restaurer depuis un export »).</p>
-    <label class="champ"><span>Pour confirmer, tape EFFACER</span><input name="conf" autocomplete="off"></label>
-    <div class="actions"><button class="btn btn-second" data-r="0">Annuler</button><button class="btn btn-danger" data-r="1">Tout effacer</button></div>`, (f) => {
-    f.addEventListener('click', (e) => {
-      const r = e.target.closest('[data-r]')?.dataset.r;
-      if (r === '0') return fermer();
-      if (r === '1' && f.querySelector('[name=conf]').value.trim().toUpperCase() === 'EFFACER') {
-        S.toutEffacer();
-        fermer();
-        route();
-      }
-    });
-  });
-});
-
 // --- Code à 6 chiffres : pavé numérique mélangé ------------------------------------
-
-let parMotDePasse = false;
 
 const melanger = (t) => {
   const a = [...t];
@@ -918,70 +834,142 @@ function pave(cible, { titre, texte = '', surComplet, bas = '' }) {
 
 const codeTropSimple = (c) => /^(\d)\1{5}$/.test(c) || '0123456789'.includes(c) || '9876543210'.includes(c);
 
+function lienOubli() {
+  return '<button type="button" class="lien" data-action-acces="oubli">Code oublié ?</button>';
+}
+
 function vueCode() {
   app.innerHTML = `<header class="entete"><h1><span class="sur-titre">Envelop</span>Déverrouiller</h1></header>
     <section class="carte acces" data-pave></section>`;
   pave(app.querySelector('[data-pave]'), {
     titre: 'Ton code',
     texte: 'Les chiffres changent de place à chaque fois.',
-    bas: '<button type="button" class="lien" data-action-acces="mot-de-passe">Utiliser mon mot de passe</button>',
+    bas: lienOubli(),
     surComplet: async (c) => {
       const r = await S.deverrouillerCode(c);
       if (r.ok) { route(); return null; }
-      if (r.restants === 0) {
-        parMotDePasse = true;
-        route();
-        alerte('Trop de codes erronés : le code a été désactivé sur cet appareil. Déverrouille avec ton mot de passe, puis recrée un code dans les Réglages.');
-        return null;
-      }
-      return { message: `Code incorrect. Encore ${r.restants} essai${r.restants > 1 ? 's' : ''}, puis le mot de passe sera exigé.`, erreur: true };
+      if (r.pause) return { message: `Trop d'essais. Réessaie dans ${r.pause} s.`, erreur: true };
+      return { message: r.restants ? `Code incorrect. Encore ${r.restants} essai${r.restants > 1 ? 's' : ''} avant une pause.` : 'Code incorrect.', erreur: true };
     },
   });
 }
 
-// Création (ou changement) du code, en deux saisies.
-function fenetreCode() {
+// Choix du code en deux saisies : premier lancement, ou changement depuis les Réglages.
+function choisirCode(cible, { titre = 'Choisis ton code', texte, bas = '', fin }) {
   let premier = null;
-  ouvrir('<div data-pave></div><button class="btn btn-large lien" data-r="annuler">Annuler</button>', (f) => {
-    f.querySelector('[data-r=annuler]').addEventListener('click', fermer);
-    const zone = f.querySelector('[data-pave]');
-    const p = pave(zone, {
-      titre: 'Choisis ton code',
-      texte: '6 chiffres, pour déverrouiller Envelop sur cet appareil.',
-      surComplet: async (c) => {
-        if (!premier) {
-          if (codeTropSimple(c)) return { message: 'Trop simple : évite les suites et les chiffres répétés.', erreur: true };
-          premier = c;
-          zone.querySelector('h2').textContent = 'Confirme ton code';
-          return { message: 'Tape-le une seconde fois.' };
-        }
-        if (c !== premier) {
-          premier = null;
-          return { message: 'Les deux codes diffèrent. Recommence.', erreur: true };
-        }
-        await S.definirCode(c);
-        fermer();
-        toast('Code enregistré. Ton mot de passe reste valable en secours.');
-        if (location.hash === '#/reglages') route();
-        return null;
-      },
-    });
-    void p;
+  pave(cible, {
+    titre,
+    texte,
+    bas,
+    surComplet: async (c) => {
+      if (!premier) {
+        if (codeTropSimple(c)) return { message: 'Trop simple : évite les suites et les chiffres répétés.', erreur: true };
+        premier = c;
+        cible.querySelector('h2').textContent = 'Confirme ton code';
+        return { message: 'Tape-le une seconde fois.' };
+      }
+      if (c !== premier) {
+        premier = null;
+        cible.querySelector('h2').textContent = titre;
+        return { message: 'Les deux codes diffèrent. Recommence.', erreur: true };
+      }
+      await S.definirCode(c);
+      fin();
+      return null;
+    },
   });
 }
 
-function proposerCode() {
-  if (S.statut() !== 'ouvert' || S.aCode()) return;
-  ouvrir(`<h2>Un code à 6 chiffres ?</h2>
-    <p>Comme dans une appli bancaire : un pavé numérique dont les chiffres changent de place. Ton mot de passe reste valable en secours.</p>
-    <div class="actions"><button class="btn btn-second" data-r="0">Plus tard</button><button class="btn btn-principal" data-r="1">Créer mon code</button></div>`, (f) => {
-    f.addEventListener('click', (e) => {
-      const r = e.target.closest('[data-r]')?.dataset.r;
-      if (r === '0') fermer();
-      if (r === '1') fenetreCode();
+function vueNouveauCode() {
+  app.innerHTML = `<header class="entete"><h1><span class="sur-titre">Envelop</span>Bienvenue</h1></header>
+    <section class="carte acces" data-pave></section>`;
+  choisirCode(app.querySelector('[data-pave]'), {
+    texte: '6 chiffres pour ouvrir Envelop sur ce téléphone. Il te sera demandé à chaque ouverture.',
+    fin: () => route(),
+  });
+}
+
+function fenetreCode() {
+  ouvrir('<div data-pave></div><button class="btn btn-large lien" data-r="annuler">Annuler</button>', (f) => {
+    f.querySelector('[data-r=annuler]').addEventListener('click', fermer);
+    choisirCode(f.querySelector('[data-pave]'), {
+      titre: 'Nouveau code',
+      texte: '6 chiffres, à la place de l\'ancien.',
+      fin: () => { fermer(); toast('Code changé.'); },
     });
   });
 }
+
+// Ancien format chiffré : une dernière ouverture, puis tout passe en clair.
+let migrationParMotDePasse = false;
+function vueMigration() {
+  if (S.migrationParCode() && !migrationParMotDePasse) {
+    app.innerHTML = `<header class="entete"><h1><span class="sur-titre">Envelop</span>Déverrouiller</h1></header>
+      <section class="carte acces" data-pave></section>`;
+    pave(app.querySelector('[data-pave]'), {
+      titre: 'Ton code',
+      texte: 'Une dernière fois avec ton code actuel : ensuite, plus aucun mot de passe.',
+      bas: '<button type="button" class="lien" data-action-acces="ancien-mdp">Utiliser mon ancien mot de passe</button>' + lienOubli(),
+      surComplet: async (c) => {
+        if (await S.migrerAvecCode(c)) { route(); toast('C\'est fait : plus de chiffrement, seulement ton code.'); return null; }
+        return { message: 'Code incorrect.', erreur: true };
+      },
+    });
+    return;
+  }
+  app.innerHTML = `
+    <header class="entete"><h1><span class="sur-titre">Envelop</span>Déverrouiller</h1></header>
+    <form class="carte acces" data-form="migration">
+      <div class="cadenas">🔒</div>
+      <p>Une dernière fois avec ton ancien mot de passe : ensuite, plus aucun mot de passe, seulement un code à 6 chiffres.</p>
+      <label class="champ"><span>Ancien mot de passe</span><input name="mdp" type="password" autocomplete="current-password" required></label>
+      <p class="message-erreur" data-erreur hidden>Mot de passe incorrect.</p>
+      <button class="btn btn-principal btn-large">Déverrouiller</button>
+      ${lienOubli()}
+    </form>`;
+}
+
+app.addEventListener('submit', async (ev) => {
+  const form = ev.target.closest('[data-form=migration]');
+  if (!form) return;
+  ev.preventDefault();
+  const bouton = form.querySelector('.btn-principal');
+  bouton.disabled = true;
+  bouton.textContent = 'Vérification…';
+  if (await S.migrerAvecMotDePasse(form.querySelector('[name=mdp]').value)) {
+    // Données ouvertes et passées en clair : reste à choisir le code de verrouillage.
+    app.innerHTML = `<header class="entete"><h1><span class="sur-titre">Envelop</span>Ton code</h1></header>
+      <section class="carte acces" data-pave></section>`;
+    choisirCode(app.querySelector('[data-pave]'), {
+      texte: 'Dernière étape : 6 chiffres pour ouvrir Envelop sur ce téléphone.',
+      fin: () => { route(); toast('C\'est fait : plus de chiffrement, seulement ton code.'); },
+    });
+    return;
+  }
+  form.querySelector('[data-erreur]').hidden = false;
+  bouton.disabled = false;
+  bouton.textContent = 'Déverrouiller';
+});
+
+app.addEventListener('click', async (ev) => {
+  const acces = ev.target.closest('[data-action-acces]')?.dataset.actionAcces;
+  if (acces === 'ancien-mdp') { migrationParMotDePasse = true; return route(); }
+  if (acces !== 'oubli') return;
+  ouvrir(`<h2>Code oublié</h2>
+    <p>Le code ne peut pas être retrouvé. Tu peux tout effacer sur ce téléphone, choisir un nouveau code, puis restaurer ton dernier export (Réglages, « Restaurer depuis un export »).</p>
+    <label class="champ"><span>Pour confirmer, tape EFFACER</span><input name="conf" autocomplete="off"></label>
+    <div class="actions"><button class="btn btn-second" data-r="0">Annuler</button><button class="btn btn-danger" data-r="1">Tout effacer</button></div>`, (f) => {
+    f.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-r]')?.dataset.r;
+      if (r === '0') return fermer();
+      if (r === '1' && f.querySelector('[name=conf]').value.trim().toUpperCase() === 'EFFACER') {
+        S.toutEffacer();
+        fermer();
+        route();
+      }
+    });
+  });
+});
 
 // Verrouillage automatique après 5 minutes en arrière-plan.
 let cacheLe = 0;
@@ -1083,7 +1071,7 @@ async function restaurerDepuisFichier() {
     lu = await S.lireSauvegarde(texte);
   } catch (e) {
     if (!(e instanceof S.MotDePasseRequis)) return alerte(esc(e.message));
-    const mdp = await demanderMotDePasse('Mot de passe du fichier', 'Cette ancienne sauvegarde chiffrée a été faite avec un autre mot de passe. Saisis celui qui la protégeait.');
+    const mdp = await demanderMotDePasse('Mot de passe du fichier', 'Cette ancienne sauvegarde est chiffrée : saisis le mot de passe qui la protégeait à l\'époque.');
     if (mdp == null) return;
     try { lu = await S.lireSauvegarde(texte, mdp); } catch (e2) { return alerte(esc(e2.message)); }
   }
@@ -1138,9 +1126,7 @@ async function vueReglages() {
       ${copies.map((c, i) => `<button class="ligne" data-reg="copie" data-i="${i}"><span class="ligne-corps"><div class="ligne-nom">${esc(c.raison)}</div><div class="ligne-detail">${new Date(c.le).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</div></span><span class="badge">Restaurer</span></button>`).join('') || '<div class="vide">Aucune copie. Une copie est faite avant chaque import, correction ou suppression de base.</div>'}
     </div></section>
     <section class="carte"><h2 class="carte-titre">Sécurité</h2><div class="liste">
-      <button class="ligne" data-reg="code"><span class="ligne-corps"><div class="ligne-nom">${S.aCode() ? 'Changer le code à 6 chiffres' : 'Créer un code à 6 chiffres'}</div><div class="ligne-detail">Pavé numérique mélangé pour déverrouiller cet appareil</div></span><span class="chevron">${ICONES.chevron}</span></button>
-      ${S.aCode() ? '<button class="ligne" data-reg="sans-code"><span class="ligne-corps"><div class="ligne-nom">Supprimer le code</div><div class="ligne-detail">Le mot de passe sera de nouveau demandé</div></span></button>' : ''}
-      <button class="ligne" data-reg="mdp"><span class="ligne-corps"><div class="ligne-nom">Changer le mot de passe</div><div class="ligne-detail">Pour déverrouiller l'appli sur cet appareil</div></span><span class="chevron">${ICONES.chevron}</span></button>
+      <button class="ligne" data-reg="code"><span class="ligne-corps"><div class="ligne-nom">Changer le code à 6 chiffres</div><div class="ligne-detail">Pavé numérique mélangé, demandé à chaque ouverture</div></span><span class="chevron">${ICONES.chevron}</span></button>
       <button class="ligne" data-reg="verrouiller"><span class="ligne-corps"><div class="ligne-nom">Verrouiller maintenant</div><div class="ligne-detail">Verrouillage automatique après 5 minutes en arrière-plan</div></span></button>
     </div></section>`;
 }
@@ -1170,39 +1156,11 @@ app.addEventListener('click', async (ev) => {
       if (ok) { await S.restaurerCopie(Number(el.dataset.i)); toast('Copie restaurée.'); route(); }
       return;
     }
-    if (a === 'mdp') return fenetreMotDePasse();
     if (a === 'code') return fenetreCode();
-    if (a === 'sans-code') {
-      if (await confirmer({ titre: 'Supprimer le code ?', texte: 'Envelop demandera de nouveau ton mot de passe pour se déverrouiller.', bouton: 'Supprimer', danger: false })) { S.supprimerCode(); route(); }
-      return;
-    }
   } catch (e) {
     if (e?.name !== 'AbortError') alerte(esc(e?.message || e));
   }
 });
-
-function fenetreMotDePasse() {
-  ouvrir(`<h2>Changer le mot de passe</h2>
-    <label class="champ"><span>Mot de passe actuel</span><input name="a" type="password" autocomplete="current-password"></label>
-    <label class="champ"><span>Nouveau (8 caractères minimum)</span><input name="n" type="password" autocomplete="new-password"></label>
-    <label class="champ"><span>Confirmation</span><input name="n2" type="password" autocomplete="new-password"></label>
-    <p class="message-erreur" data-erreur hidden></p>
-    <div class="actions"><button class="btn btn-second" data-r="0">Annuler</button><button class="btn btn-principal" data-r="1">Changer</button></div>`, (f) => {
-    f.addEventListener('click', async (e) => {
-      const r = e.target.closest('[data-r]')?.dataset.r;
-      if (r === '0') return fermer();
-      if (r !== '1') return;
-      const err = f.querySelector('[data-erreur]');
-      const v = (n) => f.querySelector(`[name=${n}]`).value;
-      if (v('n').length < 8) { err.textContent = '8 caractères minimum.'; err.hidden = false; return; }
-      if (v('n') !== v('n2')) { err.textContent = 'Les deux nouveaux mots de passe diffèrent.'; err.hidden = false; return; }
-      if (!(await S.changerMotDePasse(v('a'), v('n')))) { err.textContent = 'Mot de passe actuel incorrect.'; err.hidden = false; return; }
-      fermer();
-      toast('Mot de passe changé : recrée ton code à 6 chiffres.');
-      route();
-    });
-  });
-}
 
 // --- Message temporaire avec « Annuler » ----------------------------------------
 
